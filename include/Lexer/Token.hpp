@@ -123,3 +123,5 @@ struct Token {
     std::pair<size_t, size_t> position;
     std::string lexeme;
 };
+
+std::string TokenKindToString(Token token);

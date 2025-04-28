@@ -3,10 +3,10 @@
 #include <iostream>
 #include <format>
 
-#include "Diagnostics/Diagnostic.hpp"
-
 DiagnosticEngine::DiagnosticEngine(const SourceManager& sourceManager) :
-    m_sourceManager(sourceManager), m_warningCount(0), m_errorCount(0) {}
+    m_sourceManager(sourceManager),
+    m_warningCount(0),
+    m_errorCount(0) {}
 
 void DiagnosticEngine::report(Diagnostic diagnostic) {
     if (diagnostic.lvl == DiagnosticLevel::Error) {
@@ -27,4 +27,8 @@ void DiagnosticEngine::clearDiagnostics() {
     m_diagnostics.clear();
     m_warningCount = 0;
     m_errorCount = 0;
+}
+
+DiagnosticEngine::~DiagnosticEngine() {
+    m_diagnostics.clear();
 }

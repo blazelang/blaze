@@ -7,12 +7,13 @@ file(GLOB_RECURSE TEST_SOURCES "*.cpp")
 add_executable(blaze_tests ${TEST_SOURCES})
 
 # Link test executable with googletest and the main project
-target_link_libraries(blaze_tests PRIVATE gtest gtest_main blaze_core)
+target_link_libraries(blaze_tests PRIVATE blaze_core gtest gtest_main gmock)
 
 # Include headers and source dirs
 target_include_directories(blaze_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/tests
 )
 
 # Enable googletest test discovery

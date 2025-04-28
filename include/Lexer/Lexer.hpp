@@ -1,18 +1,21 @@
 #pragma once
 
-#include <cstdint>
 #include <vector>
+#include <cstdint>
 #include <string_view>
 #include <unordered_map>
 
-#include "Diagnostics/Diagnostic.hpp"
 #include "Lexer/Token.hpp"
-#include "Diagnostics/DiagnosticEngine.hpp"
-#include "SourceManager/SourceManager.hpp"
+#include "SourceManager/ISourceManager.hpp"
+#include "Diagnostics/IDiagnosticEngine.hpp"
 
 class Lexer {
     public:
-        Lexer(SourceManager::FileID fileID, SourceManager& sourceManager, DiagnosticEngine& diagnosticEngine);
+        Lexer(
+            ISourceManager::FileID fileID,
+            ISourceManager& sourceManager,
+            IDiagnosticEngine& diagnosticEngine
+        );
 
         std::vector<Token>& tokenize();
 
@@ -22,9 +25,9 @@ class Lexer {
             uint8_t byteLength;
         };
 
-        SourceManager::FileID m_fileID;
-        SourceManager& m_sourceManager;
-        DiagnosticEngine& m_diagnosticEngine;
+        ISourceManager::FileID m_fileID;
+        ISourceManager& m_sourceManager;
+        IDiagnosticEngine& m_diagnosticEngine;
         std::string_view m_source;
         size_t m_start;
         size_t m_pos;
@@ -48,7 +51,6 @@ class Lexer {
 
         void addToken(TokenKind kind);
 
-        // Helpers
         bool isEnd() const;
         bool isWhitespace(char32_t codepoint) const;
         bool isHexDigit(char32_t codepoint) const;

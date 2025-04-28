@@ -1,96 +1,42 @@
 #include "Lexer/Lexer.hpp"
-#include "Lexer/Token.hpp"
-#include "Diagnostics/Diagnostic.hpp"
-#include "SourceManager/SourceManager.hpp"
 
 #include <string>
 #include <format>
 #include <stdexcept>
 
+#include "Lexer/Token.hpp"
+
 std::unordered_map<std::string, TokenKind> Lexer::m_keywords = {
-    {"let", TOK_LET},
-    {"const", TOK_CONST},
-    {"fn", TOK_FUNCTION},
-    {"return", TOK_RETURN},
-    {"if", TOK_IF},
-    {"else if", TOK_ELSE_IF},
-    {"else", TOK_ELSE},
-    {"while", TOK_WHILE},
-    {"break", TOK_BREAK},
-    {"continue", TOK_CONTINUE},
-    {"for", TOK_FOR},
-    {"true", TOK_TRUE},
-    {"false", TOK_FALSE},
-    {"enum", TOK_ENUM},
-    {"null", TOK_NULL},
-    {"import", TOK_IMPORT},
-    {"export", TOK_EXPORT},
-    {"u8", TOK_U8},
-    {"u16", TOK_U16},
-    {"u32", TOK_U32},
-    {"u64", TOK_U64},
-    {"u128", TOK_U128},
-    {"i8", TOK_I8},
-    {"i16", TOK_I16},
-    {"i32", TOK_I32},
-    {"i64", TOK_I64},
-    {"i128", TOK_I128},
-    {"f16", TOK_F16},
-    {"f32", TOK_F32},
-    {"f64", TOK_F64},
-    {"char", TOK_CHAR},
-    {"string", TOK_STRING},
-    {"bool", TOK_BOOL},
-    {"void", TOK_VOID},
+    {"let", TOK_LET}, {"const", TOK_CONST}, {"fn", TOK_FUNCTION}, {"return", TOK_RETURN},
+    {"if", TOK_IF}, {"else if", TOK_ELSE_IF}, {"else", TOK_ELSE}, {"while", TOK_WHILE},
+    {"break", TOK_BREAK}, {"continue", TOK_CONTINUE}, {"for", TOK_FOR}, {"true", TOK_TRUE},
+    {"false", TOK_FALSE}, {"enum", TOK_ENUM}, {"null", TOK_NULL}, {"import", TOK_IMPORT},
+    {"export", TOK_EXPORT}, {"u8", TOK_U8}, {"u16", TOK_U16}, {"u32", TOK_U32},
+    {"u64", TOK_U64}, {"u128", TOK_U128}, {"i8", TOK_I8}, {"i16", TOK_I16},
+    {"i32", TOK_I32}, {"i64", TOK_I64}, {"i128", TOK_I128}, {"f16", TOK_F16},
+    {"f32", TOK_F32}, {"f64", TOK_F64}, {"char", TOK_CHAR}, {"string", TOK_STRING},
+    {"bool", TOK_BOOL}, {"void", TOK_VOID},
 };
 
 std::unordered_map<std::string, TokenKind> Lexer::m_symbols = {
-    {",", TOK_COMMA},
-    {":", TOK_COLON},
-    {";", TOK_SEMICOLON},
-    {".", TOK_DOT},
-    {"~", TOK_BITWISE_NOT},
-    {"(", TOK_LPAREN},
-    {")", TOK_RPAREN},
-    {"{", TOK_LBRACE},
-    {"}", TOK_RPAREN},
-    {"[", TOK_LBRACKET},
-    {"]", TOK_RBRACKET},
-    {"?", TOK_TERNARY_CONDITIONAL},
-    {"=", TOK_ASSIGN},
-    {"+", TOK_PLUS},
-    {"-", TOK_MINUS},
-    {"*", TOK_MULTIPLY},
-    {"/", TOK_DIVIDE},
-    {"%", TOK_MODULO},
-    {"&", TOK_BITWISE_AND},
-    {"|", TOK_BITWISE_OR},
-    {"^", TOK_XOR_ASSIGN},
-    {"<", TOK_LESS_THAN},
-    {">", TOK_GREATER_THAN},
-    {"!", TOK_LOGICAL_NOT},
-    {"==", TOK_EQUAL},
-    {"+=", TOK_PLUS_ASSIGN},
-    {"++", TOK_INCREMENT},
-    {"-=", TOK_MINUS_ASSIGN},
-    {"--", TOK_DECREMENT},
-    {"**", TOK_MULTIPLY_ASSIGN},
-    {"/=", TOK_DIVIDE_ASSIGN},
-    {"%=", TOK_MODULO_ASSIGN},
-    {"&=", TOK_AND_ASSIGN},
-    {"&&", TOK_LOGICAL_AND},
-    {"|=", TOK_OR_ASSIGN},
-    {"||", TOK_LOGICAL_OR},
-    {"^=", TOK_XOR_ASSIGN},
-    {"<=", TOK_LESS_EQUAL},
-    {"<<=", TOK_LEFT_SHIFT_ASSIGN},
-    {"<<", TOK_LEFT_SHIFT},
-    {">=", TOK_GREATER_EQUAL},
-    {">>=", TOK_RIGHT_SHIFT_ASSIGN},
-    {">>", TOK_RIGHT_SHIFT}
+    {",", TOK_COMMA}, {":", TOK_COLON}, {";", TOK_SEMICOLON}, {".", TOK_DOT},
+    {"~", TOK_BITWISE_NOT}, {"(", TOK_LPAREN}, {")", TOK_RPAREN}, {"{", TOK_LBRACE},
+    {"}", TOK_RBRACE}, {"[", TOK_LBRACKET}, {"]", TOK_RBRACKET}, {"?", TOK_TERNARY_CONDITIONAL},
+    {"=", TOK_ASSIGN}, {"+", TOK_PLUS}, {"-", TOK_MINUS}, {"*", TOK_MULTIPLY},
+    {"/", TOK_DIVIDE}, {"%", TOK_MODULO}, {"&", TOK_BITWISE_AND}, {"|", TOK_BITWISE_OR},
+    {"^", TOK_XOR_ASSIGN}, {"<", TOK_LESS_THAN}, {">", TOK_GREATER_THAN}, {"!", TOK_LOGICAL_NOT},
+    {"==", TOK_EQUAL}, {"+=", TOK_PLUS_ASSIGN}, {"++", TOK_INCREMENT}, {"-=", TOK_MINUS_ASSIGN},
+    {"--", TOK_DECREMENT}, {"*=", TOK_MULTIPLY_ASSIGN}, {"/=", TOK_DIVIDE_ASSIGN}, {"%=", TOK_MODULO_ASSIGN},
+    {"&=", TOK_AND_ASSIGN}, {"&&", TOK_LOGICAL_AND}, {"|=", TOK_OR_ASSIGN}, {"||", TOK_LOGICAL_OR},
+    {"^=", TOK_XOR_ASSIGN}, {"<=", TOK_LESS_EQUAL}, {"<<=", TOK_LEFT_SHIFT_ASSIGN}, {"<<", TOK_LEFT_SHIFT},
+    {">=", TOK_GREATER_EQUAL}, {">>=", TOK_RIGHT_SHIFT_ASSIGN}, {">>", TOK_RIGHT_SHIFT}
 };
 
-Lexer::Lexer(SourceManager::FileID fileID, SourceManager& sourceManager, DiagnosticEngine& diagnosticEngine) :
+Lexer::Lexer(
+    ISourceManager::FileID fileID,
+    ISourceManager& sourceManager,
+    IDiagnosticEngine& diagnosticEngine
+) :
     m_fileID(fileID),
     m_sourceManager(sourceManager),
     m_diagnosticEngine(diagnosticEngine),
@@ -128,10 +74,7 @@ Lexer::CodepointInfo Lexer::decodeUTF8(int pos) const {
         throw std::invalid_argument("Invalid UTF-8 byte sequence");
     }
 
-    return {
-        .codepoint = codepoint,
-        .byteLength = byteLength
-    };
+    return { .codepoint = codepoint, .byteLength = byteLength };
 }
 
 std::string Lexer::codepointToString(char32_t codepoint) const {
@@ -209,9 +152,10 @@ void Lexer::reportError(const std::string& message) {
 }
 
 void Lexer::addToken(TokenKind kind) {
+    size_t column = m_column - (m_pos - m_start);
     m_tokens.push_back({
         .kind = kind,
-        .position = std::pair(m_line, m_column),
+        .position = std::pair(m_line, column),
         .lexeme = std::string(m_source.substr(m_start, m_pos - m_start))
     });
 }
@@ -286,7 +230,6 @@ std::vector<Token>& Lexer::tokenize() {
     while (!isEnd()) {
         m_start = m_pos;
         const char32_t codepoint = advance();
-
         if (isWhitespace(codepoint)) {
             skipWhitespace(codepoint);
         } else {
@@ -294,13 +237,11 @@ std::vector<Token>& Lexer::tokenize() {
         }
     }
 
+    m_start = m_pos;
     addToken(TOK_EOF);
 
     // Reset values
-    m_start = 0;
-    m_pos = 0;
-    m_line = 1;
-    m_column = 1;
+    m_start = 0; m_pos = 0; m_line = 1; m_column = 1;
 
     return m_tokens;
 }

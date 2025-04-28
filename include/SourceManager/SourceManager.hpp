@@ -5,21 +5,24 @@
 #include <optional>
 #include <unordered_map>
 
-struct SourceFile {
-    std::string path;
-    std::string source;
-};
+#include "SourceManager/ISourceManager.hpp"
 
-class SourceManager {
+
+class SourceManager : public ISourceManager {
     public:
-        using FileID = int;
+        ~SourceManager() override;
 
-        std::optional<FileID> loadFile(const std::string& path);
-        std::string_view getBuffer(FileID fileID) const;
-        std::string_view getPath(FileID fileID) const;
-        std::string_view getLine(FileID fileID, size_t offset) const;
+        std::optional<FileID> loadFile(const std::string_view path) override;
+        std::string_view getBuffer(FileID fileID) const override;
+        std::string_view getPath(FileID fileID) const override;
+        std::string_view getLine(FileID fileID, size_t offset) const override;
 
     private:
-        std::vector<SourceFile> m_files;
+        struct SourceFile {
+            std::string path;
+            std::string source;
+        };
+
+        std::vector<SourceFile> m_sources;
         std::unordered_map<std::string, FileID> m_pathToID;
 };
