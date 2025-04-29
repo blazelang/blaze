@@ -65,22 +65,23 @@ std::string TokenKindToString(Token token) {
         case TOK_LOGICAL_NOT: return std::format("TOK_LOGICAL_NOT(\"{}\")", token.lexeme);
         case TOK_TERNARY_CONDITIONAL: return std::format("TOK_TERNARY_CONDITIONAL(\"{}\")", token.lexeme);
 
-        case TOK_PLUS_ASSIGN: return "TOK_PLUS_ASSIGN";
-        case TOK_MINUS_ASSIGN: return "TOK_MINUS_ASSIGN";
-        case TOK_MULTIPLY_ASSIGN: return "TOK_MULTIPLY_ASSIGN";
-        case TOK_DIVIDE_ASSIGN: return "TOK_DIVIDE_ASSIGN";
-        case TOK_MODULO_ASSIGN: return "TOK_MODULO_ASSIGN";
-        case TOK_AND_ASSIGN: return "TOK_AND_ASSIGN";
-        case TOK_OR_ASSIGN: return "TOK_OR_ASSIGN";
-        case TOK_XOR_ASSIGN: return "TOK_XOR_ASSIGN";
-        case TOK_LEFT_SHIFT_ASSIGN: return "TOK_LEFT_SHIFT_ASSIGN";
-        case TOK_RIGHT_SHIFT_ASSIGN: return "TOK_RIGHT_SHIFT_ASSIGN";
+        case TOK_PLUS_ASSIGN: return std::format("TOK_PLUS_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_MINUS_ASSIGN: return std::format("TOK_MINUS_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_MULTIPLY_ASSIGN: return std::format("TOK_MULTIPLY_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_DIVIDE_ASSIGN: return std::format("TOK_DIVIDE_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_MODULO_ASSIGN: return std::format("TOK_MODULO_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_AND_ASSIGN: return std::format("TOK_AND_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_OR_ASSIGN: return std::format("TOK_OR_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_XOR_ASSIGN: return std::format("TOK_XOR_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_LEFT_SHIFT_ASSIGN: return std::format("TOK_LEFT_SHIFT_ASSIGN(\"{}\")", token.lexeme);
+        case TOK_RIGHT_SHIFT_ASSIGN: return std::format("TOK_RIGHT_SHIFT_ASSIGN(\"{}\")", token.lexeme);
 
-        case TOK_DOT: return "TOK_DOT";
+        case TOK_DOT: return std::format("TOK_DOT(\"{}\")", token.lexeme);
+        case TOK_ARROW: return std::format("TOK_ARROW(\"{}\")", token.lexeme);
 
-        case TOK_COMMA: return "TOK_COMMA";
-        case TOK_COLON: return "TOK_COLON";
-        case TOK_SEMICOLON: return "TOK_SEMICOLON";
+        case TOK_COMMA: return std::format("TOK_COMMA(\"{}\")", token.lexeme);
+        case TOK_COLON: return std::format("TOK_COLON(\"{}\")", token.lexeme);
+        case TOK_SEMICOLON: return std::format("TOK_SEMICOLON(\"{}\")", token.lexeme);
 
         case TOK_LPAREN: return std::format("TOK_LPAREN(\"{}\")", token.lexeme);
         case TOK_RPAREN: return std::format("TOK_RPAREN(\"{}\")", token.lexeme);
@@ -91,13 +92,13 @@ std::string TokenKindToString(Token token) {
 
         case TOK_INTEGER_LITERAL: return std::format("TOK_INTEGER_LITERAL(\"{}\")", token.lexeme);
         case TOK_FLOAT_LITERAL: return std::format("TOK_FLOAT_LITERAL(\"{}\")", token.lexeme);
-        case TOK_CHAR_LITERAL: return "TOK_CHAR_LITERAL";
-        case TOK_STRING_LITERAL: return "TOK_STRING_LITERAL";
+        case TOK_CHAR_LITERAL: return std::format("TOK_CHAR_LITERAL(\"{}\")", token.lexeme);
+        case TOK_STRING_LITERAL: return std::format("TOK_STRING_LITERAL(\"{}\")", token.lexeme);
 
         case TOK_IDENTIFIER: return std::format("TOK_IDENTIFIER(\"{}\")", token.lexeme);
-        case TOK_ERROR: return "TOK_ERROR";
-        case TOK_EOF: return "TOK_EOF";
+        case TOK_ERROR: return std::format("TOK_ERROR(\"{}\")", token.lexeme);
+        case TOK_EOF: return std::format("TOK_EOF(\"{}\")", token.lexeme);
 
-        default: return "TOK_UNKNOWN";
+        default: return std::format("TOK_UNKNOWN(\"{}\")", token.lexeme);
     }
 }

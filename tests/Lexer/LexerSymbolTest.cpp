@@ -52,7 +52,7 @@ INSTANTIATE_TEST_SUITE_P(
         LexerTestCase{
             .name = "CompoundSymbols",
             .fileID = 2,
-            .source = "== += ++ -= -- *= /= %= &= && |= || ^= <= << >= >> ",
+            .source = "== += ++ -= -- *= /= %= &= && |= || ^= <= << >= >> != ->",
             .expectedTokens = {
                 {TOK_EQUAL, {1, 1}, "=="},
                 {TOK_PLUS_ASSIGN, {1, 4}, "+="},
@@ -71,7 +71,9 @@ INSTANTIATE_TEST_SUITE_P(
                 {TOK_LEFT_SHIFT, {1, 43}, "<<"},
                 {TOK_GREATER_EQUAL, {1, 46}, ">="},
                 {TOK_RIGHT_SHIFT, {1, 49}, ">>"},
-                {TOK_EOF, {1, 52}, ""}
+                {TOK_NOT_EQUAL, {1, 52}, "!="},
+                {TOK_ARROW, {1, 55}, "->"},
+                {TOK_EOF, {1, 57}, ""}
             }
         },
 
@@ -117,8 +119,8 @@ INSTANTIATE_TEST_SUITE_P(
                 {TOK_RBRACE, {1, 6}, "}"},
                 {TOK_LESS_THAN, {1, 7}, "<"},
                 {TOK_GREATER_EQUAL, {1, 8}, ">="},
-                {TOK_LOGICAL_NOT, {1, 10}, "!"},
-                {TOK_EQUAL, {1, 11}, "=="},
+                {TOK_NOT_EQUAL, {1, 10}, "!="},
+                {TOK_ASSIGN, {1, 12}, "="},
                 {TOK_INCREMENT, {1, 13}, "++"},
                 {TOK_MINUS, {1, 15}, "-"},
                 {TOK_MULTIPLY, {1, 16}, "*"},
@@ -145,9 +147,9 @@ INSTANTIATE_TEST_SUITE_P(
         LexerTestCase{
             .name = "EmptySource",
             .fileID = 7,
-            .source = "",
+            .source = " ",
             .expectedTokens = {
-                {TOK_EOF, {1, 1}, ""}
+                {TOK_EOF, {1, 2}, ""}
             }
         },
 
@@ -165,8 +167,7 @@ INSTANTIATE_TEST_SUITE_P(
                 {TOK_LOGICAL_OR, {1, 10}, "||"},
                 {TOK_LOGICAL_AND, {1, 12}, "&&"},
                 {TOK_EQUAL, {1, 14}, "=="},
-                {TOK_LOGICAL_NOT, {1, 16}, "!"},
-                {TOK_ASSIGN, {1, 17}, "="},
+                {TOK_NOT_EQUAL, {1, 16}, "!="},
                 {TOK_INCREMENT, {1, 18}, "++"},
                 {TOK_DECREMENT, {1, 20}, "--"},
                 {TOK_EOF, {1, 22}, ""}

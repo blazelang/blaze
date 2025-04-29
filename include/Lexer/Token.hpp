@@ -81,6 +81,7 @@ enum TokenKind {
 
     // Access and Scope
     TOK_DOT,                    // '.'  (dot for member access)
+    TOK_ARROW,                  // '->' (pointer or lambda member access)
 
     // Separators and Punctuation
     TOK_COMMA,                  // ','  (comma separator)

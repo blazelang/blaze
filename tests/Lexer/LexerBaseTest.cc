@@ -30,7 +30,13 @@ protected:
     void SetUp() override {
         const LexerTestCase& testcase = GetParam();
         EXPECT_CALL(m_sourceManager, getBuffer(testcase.fileID)).WillOnce(testing::Return(testcase.source));
-        EXPECT_CALL(m_diagnosticEngine, report(testing::_)).Times(testing::AtLeast(countTokenErrors(testcase.expectedTokens)));
+
+        int errorCount = countTokenErrors(testcase.expectedTokens);
+        if (errorCount > 0) {
+            EXPECT_CALL(m_sourceManager, getPath(testing::_)).Times(testing::AtLeast(errorCount)),
+            EXPECT_CALL(m_diagnosticEngine, report(testing::_)).Times(testing::AtLeast(errorCount));
+        }
+
         m_lexer = std::make_unique<Lexer>(Lexer(testcase.fileID, m_sourceManager, m_diagnosticEngine));
     }
 
@@ -41,7 +47,7 @@ protected:
     }
 
     void CheckTokens(const std::vector<Token>& expectedTokens, const std::vector<Token>& recievedTokens) {
-        // ASSERT_EQ(expectedTokens.size(), recievedTokens.size());
+        ASSERT_EQ(expectedTokens.size(), recievedTokens.size());
         for (int i = 0; i < recievedTokens.size(); ++i) {
             SCOPED_TRACE(testing::Message() << std::format("Expected: {}, Received: {}", TokenKindToString(expectedTokens[i]), TokenKindToString(recievedTokens[i])));
             EXPECT_EQ(recievedTokens[i].kind, expectedTokens[i].kind);
