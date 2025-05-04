@@ -42,7 +42,7 @@ std::string_view SourceManager::getBuffer(FileID fileID) const {
 }
 
 std::string_view SourceManager::getPath(FileID fileID) const {
-    const SourceManager::SourceManager::SourceFile& source = m_sources.at(fileID);
+    const SourceManager::SourceFile& source = m_sources.at(fileID);
     return std::string_view(source.path);
 }
 

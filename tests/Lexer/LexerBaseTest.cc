@@ -32,10 +32,8 @@ protected:
         EXPECT_CALL(m_sourceManager, getBuffer(testcase.fileID)).WillOnce(testing::Return(testcase.source));
 
         int errorCount = countTokenErrors(testcase.expectedTokens);
-        if (errorCount > 0) {
-            EXPECT_CALL(m_sourceManager, getPath(testing::_)).Times(testing::AtLeast(errorCount)),
-            EXPECT_CALL(m_diagnosticEngine, report(testing::_)).Times(testing::AtLeast(errorCount));
-        }
+        EXPECT_CALL(m_diagnosticEngine, report(testing::_)).Times(testing::AtLeast(errorCount));
+        EXPECT_CALL(m_sourceManager, getPath(testing::_)).Times(testing::AtLeast(errorCount));
 
         m_lexer = std::make_unique<Lexer>(Lexer(testcase.fileID, m_sourceManager, m_diagnosticEngine));
     }

@@ -3,10 +3,11 @@
 #include <string>
 #include <format>
 #include <stdexcept>
+#include <string_view>
 
 #include "Lexer/Token.hpp"
 
-std::unordered_map<std::string, TokenKind> Lexer::m_keywords = {
+std::unordered_map<std::string, TokenKind> Lexer::s_keywords = {
     {"let", TOK_LET},
     {"const", TOK_CONST},
     {"fn", TOK_FUNCTION},
@@ -43,7 +44,7 @@ std::unordered_map<std::string, TokenKind> Lexer::m_keywords = {
     {"void", TOK_VOID},
 };
 
-std::unordered_map<std::string, TokenKind> Lexer::m_symbols = {
+std::unordered_map<std::string, TokenKind> Lexer::s_symbols = {
     {",", TOK_COMMA},
     {":", TOK_COLON},
     {";", TOK_SEMICOLON},
@@ -108,6 +109,10 @@ Lexer::Lexer(
 Lexer::CodepointInfo Lexer::decodeUTF8(int pos) const {
     char32_t codepoint = 0;
     uint8_t byteLength = 0;
+
+    if (isEnd()) {
+        return { .codepoint = codepoint, .byteLength = byteLength };
+    }
 
     if ((m_source.at(pos) & 0x80) == 0x0) {
         codepoint = m_source.at(pos);
@@ -186,8 +191,8 @@ char32_t Lexer::lookahead(int i) const {
     return decodeUTF8(m_pos + i).codepoint;
 };
 
-bool Lexer::match(char32_t c) {
-    if (isEnd() || c != peek()) {
+bool Lexer::match(const char32_t codepoint) {
+    if (isEnd() || codepoint != peek()) {
         return false;
     }
     advance();
@@ -210,12 +215,26 @@ void Lexer::reportError(const std::string& message) {
     });
 }
 
+void Lexer::reportWarning(const std::string& message) {
+    m_diagnosticEngine.report({
+        .phrase = DiagnosticPhrase::Lexer,
+        .lvl = DiagnosticLevel::Warning,
+        .position = currentPosition(),
+        .message = message,
+    });
+}
+
+
+std::string_view Lexer::getLexeme() const {
+    return m_source.substr(m_start, m_pos - m_start);
+}
+
 void Lexer::addToken(TokenKind kind) {
     size_t column = m_column - (m_pos - m_start);
     m_tokens.push_back({
         .kind = kind,
         .position = std::pair(m_line, column),
-        .lexeme = std::string(m_source.substr(m_start, m_pos - m_start))
+        .lexeme = std::string(getLexeme())
     });
 }
 
@@ -239,8 +258,24 @@ bool Lexer::isBinaryDigit(char32_t codepoint) const {
     return codepoint == U'0' || codepoint == U'1';
 }
 
+bool Lexer::isDigit(Lexer::NumericBase base, char32_t codepoint) const {
+    if (base == NumericBase::Binary) {
+        return isBinaryDigit(codepoint);
+    } else if (base == NumericBase::Octal) {
+        return isOctalDigit(codepoint);
+    } else if (base == NumericBase::HexaDecimal) {
+        return isHexDigit(codepoint);
+    } else {
+        return isDecimalDigit(codepoint);
+    }
+}
+
 bool Lexer::isDecimalDigit(char32_t codepoint) const {
     return (codepoint >= U'0' && codepoint <= U'9');
+}
+
+bool Lexer::isNum(char32_t codepoint) const {
+    return isDecimalDigit(codepoint) || (codepoint == U'.' && isDecimalDigit(peek())) || (codepoint == U'_' && isDecimalDigit(peek()));
 }
 
 bool Lexer::isAlpha(char32_t codepoint) const {
@@ -258,13 +293,273 @@ void Lexer::skipWhitespace(char32_t codepoint) {
     }
 }
 
+void Lexer::lexNumberLiteral(char32_t codepoint) {
+    // Default number base is decimal
+    NumericBase base = Decimal;
+    bool isFloat = false;
+
+    // Validation flags
+    bool hasEmptyDigit = false;
+    bool hasInValidDigit = false;
+    bool hasEmptyExponent = false;
+    bool hasLeadingDecimalDot = false;
+    bool hasMultipleDecimalDot = false;
+    bool hasConsecutiveUnderscore = false;
+    bool hasLeadingUnderscore = false;
+    bool hasTailingUnderscore = false;
+    bool hasUnderscoreBeforeBasePrefix = false;
+    bool hasUnderscoreAfterBasePrefix = false;
+    bool hasUnderscoreBeforeDecimalPoint = false;
+
+    std::string invalidSuffix;
+
+    // Case when the literal starts with '.' (e.g., ".123") which is invalid
+    if (codepoint == U'.') {
+        hasLeadingDecimalDot = true;
+        advance();
+    }
+
+    // Check for invalid underscore at start after digit (e.g., "_0123" or "_123")
+    if (codepoint == U'_') {
+        hasLeadingUnderscore = true;
+        advance();
+    }
+
+    // Check for invalid underscore between '0' and base prefix (e.g., "0_xFF")
+    if (codepoint == U'0' && peek() == U'_') {
+        hasTailingUnderscore = true;
+        advance();
+    }
+
+    // parse base prefix
+    if (match(U'x') || match(U'X')) {
+        base = HexaDecimal;
+    } else if (match(U'b') || match(U'B')) {
+        base = Binary;
+    } else if (match(U'o') || match(U'O')) {
+        base = Octal;
+    }
+
+    // Check for invalid underscore if base is not decimal and has tailing underscore (eg. "0_x" or "0_b")
+    if (base != Decimal && hasTailingUnderscore) {
+        hasUnderscoreBeforeBasePrefix = true;
+        hasTailingUnderscore= false;
+    }
+
+    // Check for invalid underscore after base prefix (e.g., "0x_FF")
+    if (base != Decimal && peek() == U'_') {
+        hasUnderscoreAfterBasePrefix = true;
+        advance();
+    }
+
+    // Validate first digit after base prefix
+    if (base != Decimal && !isDigit(base, peek())) {
+        if (isAlphaNum(peek())) {
+            hasInValidDigit = true; // invalid character
+        } else {
+            hasEmptyDigit = true; // no valid digit present
+        }
+    }
+
+    // Parse digits and underscores in numeric literal
+    while(isDigit(base, peek()) || peek() == U'_') {
+        char32_t current = peek();
+        char32_t next = lookahead();
+
+        // Consecutive underscores (e.g., "123__456") are not allowed
+        if (current == U'_') {
+            if (next == U'_') {
+                hasConsecutiveUnderscore = true;
+            }
+            hasTailingUnderscore = true;
+        } else {
+            hasTailingUnderscore = false;
+        }
+
+        advance();
+    }
+
+    // Decimal point support only in base 10 and decimal number after ('.')
+    if (base == Decimal && peek() == U'.' && isDecimalDigit(lookahead())) {
+        // check for underscore before decimal point
+        if (hasTailingUnderscore) {
+            hasTailingUnderscore = false;
+            hasUnderscoreBeforeDecimalPoint = true;
+        } else {
+            isFloat = true;
+        }
+        advance(); // consume ('.')
+    }
+
+    // Parse decimal fraction part
+    while (isDecimalDigit(peek()) || peek() == U'_') {
+        char32_t current = peek();
+        char32_t next = lookahead();
+
+        // Check for consecutive and last underscore
+        if (peek() == U'_') {
+            if (next == U'_') {
+                hasConsecutiveUnderscore = true;
+            }
+            hasTailingUnderscore = true;
+        } else {
+            hasTailingUnderscore = false;
+        }
+
+        advance();
+    }
+
+    // Check for multiple decimal dot (1.2.3.4)
+    if (isFloat && peek() == U'.' && isDecimalDigit(lookahead())) {
+        hasMultipleDecimalDot = true;
+        advance();
+        while (isDecimalDigit(peek()) || peek() == U'.') {
+            advance();
+        }
+    }
+
+    // Handle exponent (e.g., "1.0e+10")
+    if (base == Decimal && (match(U'e') || match(U'E'))) {
+        isFloat = true;
+
+        if (peek() == '+' || peek() == '-') {
+            advance(); // consume optional sign '+' or '-'
+        }
+
+        // check for atleast one valid decimal digit for exponent is found
+        if (!isDecimalDigit(peek())) {
+            hasEmptyExponent = true; // e.g., "1.0e"
+        }
+
+        while (isDecimalDigit(peek())) {
+            advance();
+        }
+    }
+
+    // Handle valid integer suffixes like i32, u64, etc.
+    if (!isFloat && (peek() == U'i' || peek() == U'I' || peek() == U'u' || peek() == U'U')) {
+        if (lookahead() == U'8') {
+            advance();
+            advance();
+        } else if (lookahead() == U'1') {
+            if (lookahead(2) == U'6') {
+                advance();
+                advance();
+                advance();
+            } else if (lookahead(2) == U'2' && lookahead(3) == U'8') {
+                advance();
+                advance();
+                advance();
+                advance();
+            }
+        } else if (lookahead() == U'3' && lookahead(2) == U'2') {
+            advance();
+            advance();
+            advance();
+        } else if (lookahead() == U'6' && lookahead(2) == U'4') {
+            advance();
+            advance();
+            advance();
+        }
+    }
+
+    // Handle float suffixes like f32, f64
+    if (peek() == U'f' || peek() == U'F') {
+        isFloat = true;
+        if (lookahead() == U'3' && lookahead(2) == U'2') {
+            advance();
+            advance();
+            advance();
+        } else if (lookahead() == U'6' && lookahead(2) == U'4') {
+            advance();
+            advance();
+            advance();
+        }
+    }
+
+    // Catch any remaining invalid suffix
+    while (isAlphaNum(peek())) {
+        invalidSuffix += advance();
+    }
+
+    // === Final validations and error reports ===
+
+    if (invalidSuffix.size() > 0) {
+        reportError(std::format("invalid suffix `{}` for {} literal", invalidSuffix, isFloat ? "float" : "number"));
+        if (isFloat) {
+            reportWarning("valid suffixes are `f32` and `f64`");
+        } else {
+            reportWarning("valid suffix must be one of the numeric types (`i32` ,`u32`, `isize`, `usize` etc.)");
+        }
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasEmptyDigit) {
+        reportError("no valid digit found for number");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasLeadingDecimalDot) {
+        reportError("float literals must have an integer part before decimal dot");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasMultipleDecimalDot) {
+        reportError(std::format("multiple decimal dots are not allowed in {} literal", isFloat ? "float" : "number"));
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasInValidDigit) {
+        reportError(std::format("invalid digit for a base {} literal", static_cast<int>(base)));
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasEmptyExponent) {
+        reportError("expected at least one digit in exponent");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasConsecutiveUnderscore) {
+        reportError(std::format("multiple consecutive underscores are not allowed in {} literal", isFloat ? "float" : "number"));
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasLeadingUnderscore) {
+        reportError(std::format("leading underscore are not allowed in {} literal", isFloat ? "float" : "number"));
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasTailingUnderscore) {
+        reportError(std::format("tailing underscore are not allowed in {} literal", isFloat ? "float" : "number"));
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasUnderscoreBeforeBasePrefix) {
+        reportError("underscores are not allowed before base suffix in numeric literal");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasUnderscoreAfterBasePrefix) {
+        reportError("underscores are not allowed after base suffix in numeric literal");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasUnderscoreBeforeDecimalPoint) {
+        reportError("underscores are not allowed before decimal point in numeric literal");
+        return addToken(TOK_ERROR);
+    }
+
+    // If all is well, return appropriate token
+    return addToken(isFloat ? TOK_FLOAT_LITERAL : TOK_INTEGER_LITERAL);
+}
+
 void Lexer::lexSymbol(char32_t codepoint) {
     // Start with the first character
     std::string symbol = codepointToString(codepoint);
 
     // Check if the symbol exist
-    auto symbolIt = m_symbols.find(symbol);
-    if (symbolIt == m_symbols.end()) {
+    auto symbolIt = s_symbols.find(symbol);
+    if (symbolIt == s_symbols.end()) {
         reportError(std::format("Unrecognized symbol: {}", codepointToString(codepoint)));
         return addToken(TOK_ERROR);
     }
@@ -272,8 +567,8 @@ void Lexer::lexSymbol(char32_t codepoint) {
     // Try to extend the symbol as long as it's exist
     while (!isEnd()) {
         // Check if the extended symbol exist
-        auto extendedSymbolIt = m_symbols.find(symbol + codepointToString(peek()));
-        if (extendedSymbolIt != m_symbols.end()) {
+        auto extendedSymbolIt = s_symbols.find(symbol + codepointToString(peek()));
+        if (extendedSymbolIt != s_symbols.end()) {
             symbol += advance();
             symbolIt = extendedSymbolIt;
         } else {
@@ -291,6 +586,8 @@ std::vector<Token>& Lexer::tokenize() {
         const char32_t codepoint = advance();
         if (isWhitespace(codepoint)) {
             skipWhitespace(codepoint);
+        } else if (isNum(codepoint)) {
+            lexNumberLiteral(codepoint);
         } else {
             lexSymbol(codepoint);
         }

@@ -97,7 +97,7 @@ std::string TokenKindToString(Token token) {
 
         case TOK_IDENTIFIER: return std::format("TOK_IDENTIFIER(\"{}\")", token.lexeme);
         case TOK_ERROR: return std::format("TOK_ERROR(\"{}\")", token.lexeme);
-        case TOK_EOF: return std::format("TOK_EOF(\"{}\")", token.lexeme);
+        case TOK_EOF: return "TOK_EOF";
 
         default: return std::format("TOK_UNKNOWN(\"{}\")", token.lexeme);
     }

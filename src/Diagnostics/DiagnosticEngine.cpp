@@ -1,7 +1,9 @@
 #include "Diagnostics/DiagnosticEngine.hpp"
+#include "Diagnostics/Diagnostic.hpp"
 
 #include <iostream>
-#include <format>
+#include <fmt/core.h>
+#include <fmt/color.h>
 
 DiagnosticEngine::DiagnosticEngine(const SourceManager& sourceManager) :
     m_sourceManager(sourceManager),
@@ -18,8 +20,13 @@ void DiagnosticEngine::report(Diagnostic diagnostic) {
 }
 
 void DiagnosticEngine::printDiagnostics() {
+    std::cout << "\n";
     for (const auto& diagnostic : m_diagnostics) {
-        std::cout << std::format("{}", diagnostic.message) << '\n';
+        if (diagnostic.lvl == DiagnosticLevel::Error) {
+            fmt::print("\nerror: {}\n", diagnostic.message);
+        } else {
+            fmt::print("help: {}\n", diagnostic.message);
+        }
     }
 }
 
