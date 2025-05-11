@@ -31,6 +31,9 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(googletest)
 
+# Find ICU package
+find_package(ICU REQUIRED uc data i18n)
+
 # Gather all source files
 file(GLOB_RECURSE SOURCE_FILES "src/*.cpp")
 
@@ -39,7 +42,8 @@ list(FILTER SOURCE_FILES EXCLUDE REGEX ".*main\\.cpp") # Exclude main.cpp
 
 # Core library target (only non-main files)
 add_library(blaze_core STATIC ${SOURCE_FILES})
-target_link_libraries(blaze_core PRIVATE fmt::fmt)
+
+target_link_libraries(blaze_core PRIVATE fmt::fmt ICU::uc ICU::data ICU::i18n)
 target_include_directories(blaze_core PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # Add test directory

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 
 enum TokenKind {
     // Keywords
@@ -106,17 +107,12 @@ enum TokenKind {
     TOK_IDENTIFIER,             // An identifier (e.g., variable, function name, etc.)
 
     // Special
+    TOK_DOC_COMMENT_LINE_OUTER,
+    TOK_DOC_COMMENT_LINE_INNER,
+    TOK_DOC_COMMENT_BLOCK_OUTER,
+    TOK_DOC_COMMENT_BLOCK_INNER,
     TOK_ERROR,
     TOK_EOF
-};
-
-enum TokenErrorKind {
-    TOK_EMPTY_CHAR,
-    TOK_LONG_CHAR,
-    TOK_INVALID_ESCAPE_SEQUENCE,
-    TOK_UNRECOGNIZED_SYMBOL,
-    TOK_UNTERMINATED_STRING,
-    TOK_UNTERMINATED_MULTI_LINE_COMMENT,
 };
 
 struct Token {
@@ -124,5 +120,9 @@ struct Token {
     std::pair<size_t, size_t> position;
     std::string lexeme;
 };
+
+extern std::unordered_map<std::string, TokenKind> g_keywordMap;
+
+extern std::unordered_map<std::string, TokenKind> g_symbolMap;
 
 std::string TokenKindToString(Token token);

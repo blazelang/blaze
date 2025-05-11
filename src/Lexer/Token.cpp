@@ -2,6 +2,91 @@
 
 #include <format>
 
+std::unordered_map<std::string, TokenKind> g_keywordMap = {
+    {"let", TOK_LET},
+    {"const", TOK_CONST},
+    {"fn", TOK_FUNCTION},
+    {"return", TOK_RETURN},
+    {"if", TOK_IF},
+    {"else if", TOK_ELSE_IF},
+    {"else", TOK_ELSE},
+    {"while", TOK_WHILE},
+    {"break", TOK_BREAK},
+    {"continue", TOK_CONTINUE},
+    {"for", TOK_FOR},
+    {"true", TOK_TRUE},
+    {"false", TOK_FALSE},
+    {"enum", TOK_ENUM},
+    {"null", TOK_NULL},
+    {"import", TOK_IMPORT},
+    {"export", TOK_EXPORT},
+    {"u8", TOK_U8},
+    {"u16", TOK_U16},
+    {"u32", TOK_U32},
+    {"u64", TOK_U64},
+    {"u128", TOK_U128},
+    {"i8", TOK_I8},
+    {"i16", TOK_I16},
+    {"i32", TOK_I32},
+    {"i64", TOK_I64},
+    {"i128", TOK_I128},
+    {"f16", TOK_F16},
+    {"f32", TOK_F32},
+    {"f64", TOK_F64},
+    {"char", TOK_CHAR},
+    {"string", TOK_STRING},
+    {"bool", TOK_BOOL},
+    {"void", TOK_VOID},
+};
+
+std::unordered_map<std::string, TokenKind> g_symbolMap = {
+    {",", TOK_COMMA},
+    {":", TOK_COLON},
+    {";", TOK_SEMICOLON},
+    {".", TOK_DOT},
+    {"~", TOK_BITWISE_NOT},
+    {"(", TOK_LPAREN},
+    {")", TOK_RPAREN},
+    {"{", TOK_LBRACE},
+    {"}", TOK_RBRACE},
+    {"[", TOK_LBRACKET},
+    {"]", TOK_RBRACKET},
+    {"?", TOK_TERNARY_CONDITIONAL},
+    {"=", TOK_ASSIGN},
+    {"+", TOK_PLUS},
+    {"-", TOK_MINUS},
+    {"*", TOK_MULTIPLY},
+    {"/", TOK_DIVIDE},
+    {"%", TOK_MODULO},
+    {"&", TOK_BITWISE_AND},
+    {"|", TOK_BITWISE_OR},
+    {"^", TOK_XOR_ASSIGN},
+    {"<", TOK_LESS_THAN},
+    {">", TOK_GREATER_THAN},
+    {"!", TOK_LOGICAL_NOT},
+    {"!=", TOK_NOT_EQUAL},
+    {"==", TOK_EQUAL},
+    {"->", TOK_ARROW},
+    {"+=", TOK_PLUS_ASSIGN},
+    {"++", TOK_INCREMENT},
+    {"-=", TOK_MINUS_ASSIGN},
+    {"--", TOK_DECREMENT},
+    {"*=", TOK_MULTIPLY_ASSIGN},
+    {"/=", TOK_DIVIDE_ASSIGN},
+    {"%=", TOK_MODULO_ASSIGN},
+    {"&=", TOK_AND_ASSIGN},
+    {"&&", TOK_LOGICAL_AND},
+    {"|=", TOK_OR_ASSIGN},
+    {"||", TOK_LOGICAL_OR},
+    {"^=", TOK_XOR_ASSIGN},
+    {"<=", TOK_LESS_EQUAL},
+    {"<<=", TOK_LEFT_SHIFT_ASSIGN},
+    {"<<", TOK_LEFT_SHIFT},
+    {">=", TOK_GREATER_EQUAL},
+    {">>=", TOK_RIGHT_SHIFT_ASSIGN},
+    {">>", TOK_RIGHT_SHIFT}
+};
+
 std::string TokenKindToString(Token token) {
     switch (token.kind) {
         case TOK_LET: return std::format("TOK_LET(\"{}\")", token.lexeme);
@@ -96,6 +181,10 @@ std::string TokenKindToString(Token token) {
         case TOK_STRING_LITERAL: return std::format("TOK_STRING_LITERAL(\"{}\")", token.lexeme);
 
         case TOK_IDENTIFIER: return std::format("TOK_IDENTIFIER(\"{}\")", token.lexeme);
+        case TOK_DOC_COMMENT_LINE_OUTER: return std::format("TOK_DOC_COMMENT_LINE_OUTER(\"{}\")", token.lexeme);
+        case TOK_DOC_COMMENT_LINE_INNER: return std::format("TOK_DOC_COMMENT_LINE_INNER(\"{}\")", token.lexeme);
+        case TOK_DOC_COMMENT_BLOCK_OUTER: return std::format("TOK_DOC_COMMENT_BLOCK_OUTER(\"{}\")", token.lexeme);
+        case TOK_DOC_COMMENT_BLOCK_INNER: return std::format("TOK_DOC_COMMENT_BLOCK_INNER(\"{}\")", token.lexeme);
         case TOK_ERROR: return std::format("TOK_ERROR(\"{}\")", token.lexeme);
         case TOK_EOF: return "TOK_EOF";
 

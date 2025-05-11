@@ -1,96 +1,16 @@
 #include "Lexer/Lexer.hpp"
 
+#include <cstdint>
+#include <exception>
+#include <optional>
 #include <string>
 #include <format>
-#include <stdexcept>
 #include <string_view>
 
+#include <unicode/normalizer2.h>
+
 #include "Lexer/Token.hpp"
-
-std::unordered_map<std::string, TokenKind> Lexer::s_keywords = {
-    {"let", TOK_LET},
-    {"const", TOK_CONST},
-    {"fn", TOK_FUNCTION},
-    {"return", TOK_RETURN},
-    {"if", TOK_IF},
-    {"else if", TOK_ELSE_IF},
-    {"else", TOK_ELSE},
-    {"while", TOK_WHILE},
-    {"break", TOK_BREAK},
-    {"continue", TOK_CONTINUE},
-    {"for", TOK_FOR},
-    {"true", TOK_TRUE},
-    {"false", TOK_FALSE},
-    {"enum", TOK_ENUM},
-    {"null", TOK_NULL},
-    {"import", TOK_IMPORT},
-    {"export", TOK_EXPORT},
-    {"u8", TOK_U8},
-    {"u16", TOK_U16},
-    {"u32", TOK_U32},
-    {"u64", TOK_U64},
-    {"u128", TOK_U128},
-    {"i8", TOK_I8},
-    {"i16", TOK_I16},
-    {"i32", TOK_I32},
-    {"i64", TOK_I64},
-    {"i128", TOK_I128},
-    {"f16", TOK_F16},
-    {"f32", TOK_F32},
-    {"f64", TOK_F64},
-    {"char", TOK_CHAR},
-    {"string", TOK_STRING},
-    {"bool", TOK_BOOL},
-    {"void", TOK_VOID},
-};
-
-std::unordered_map<std::string, TokenKind> Lexer::s_symbols = {
-    {",", TOK_COMMA},
-    {":", TOK_COLON},
-    {";", TOK_SEMICOLON},
-    {".", TOK_DOT},
-    {"~", TOK_BITWISE_NOT},
-    {"(", TOK_LPAREN},
-    {")", TOK_RPAREN},
-    {"{", TOK_LBRACE},
-    {"}", TOK_RBRACE},
-    {"[", TOK_LBRACKET},
-    {"]", TOK_RBRACKET},
-    {"?", TOK_TERNARY_CONDITIONAL},
-    {"=", TOK_ASSIGN},
-    {"+", TOK_PLUS},
-    {"-", TOK_MINUS},
-    {"*", TOK_MULTIPLY},
-    {"/", TOK_DIVIDE},
-    {"%", TOK_MODULO},
-    {"&", TOK_BITWISE_AND},
-    {"|", TOK_BITWISE_OR},
-    {"^", TOK_XOR_ASSIGN},
-    {"<", TOK_LESS_THAN},
-    {">", TOK_GREATER_THAN},
-    {"!", TOK_LOGICAL_NOT},
-    {"!=", TOK_NOT_EQUAL},
-    {"==", TOK_EQUAL},
-    {"->", TOK_ARROW},
-    {"+=", TOK_PLUS_ASSIGN},
-    {"++", TOK_INCREMENT},
-    {"-=", TOK_MINUS_ASSIGN},
-    {"--", TOK_DECREMENT},
-    {"*=", TOK_MULTIPLY_ASSIGN},
-    {"/=", TOK_DIVIDE_ASSIGN},
-    {"%=", TOK_MODULO_ASSIGN},
-    {"&=", TOK_AND_ASSIGN},
-    {"&&", TOK_LOGICAL_AND},
-    {"|=", TOK_OR_ASSIGN},
-    {"||", TOK_LOGICAL_OR},
-    {"^=", TOK_XOR_ASSIGN},
-    {"<=", TOK_LESS_EQUAL},
-    {"<<=", TOK_LEFT_SHIFT_ASSIGN},
-    {"<<", TOK_LEFT_SHIFT},
-    {">=", TOK_GREATER_EQUAL},
-    {">>=", TOK_RIGHT_SHIFT_ASSIGN},
-    {">>", TOK_RIGHT_SHIFT}
-};
+#include "Utils/Utf8.hpp"
 
 Lexer::Lexer(
     ISourceManager::FileID fileID,
@@ -106,89 +26,33 @@ Lexer::Lexer(
     m_line(1),
     m_column(1) {}
 
-Lexer::CodepointInfo Lexer::decodeUTF8(int pos) const {
-    char32_t codepoint = 0;
-    uint8_t byteLength = 0;
-
-    if (isEnd()) {
-        return { .codepoint = codepoint, .byteLength = byteLength };
-    }
-
-    if ((m_source.at(pos) & 0x80) == 0x0) {
-        codepoint = m_source.at(pos);
-        byteLength = 1;
-    }
-
-    else if ((m_source.at(pos) & 0xE0) == 0xC0) {
-        codepoint = ((m_source.at(pos) & 0X1F) << 6) | (m_source.at(pos + 1) & 0x3F);
-        byteLength = 2;
-    }
-
-    else if ((m_source.at(pos) & 0xF0) == 0xE0) {
-        codepoint = ((m_source.at(pos) & 0XF) << 12) | ((m_source.at(pos + 1) & 0x3F) << 6) | (m_source.at(pos + 2) & 0x3F);
-        byteLength = 3;
-    }
-
-    else if ((m_source.at(pos) & 0xF8) == 0xF0) {
-        codepoint = ((m_source.at(pos) & 0X7) << 18) | ((m_source.at(pos + 1) & 0x3F) << 12) | ((m_source.at(pos + 2) & 0x3F) << 6) | (m_source.at(pos + 3) & 0x3F);
-        byteLength = 4;
-    }
-
-    else {
-        throw std::invalid_argument("Invalid UTF-8 byte sequence");
-    }
-
-    return { .codepoint = codepoint, .byteLength = byteLength };
-}
-
-std::string Lexer::codepointToString(char32_t codepoint) const {
-    std::string result;
-
-    // Handle 1-byte UTF-8 (ASCII range: U+0000 to U+007F)
-    if (codepoint <= 0x7F) {
-        result.push_back(static_cast<char>(codepoint));
-    }
-
-    // Handle 2-byte UTF-8 (U+0080 to U+07FF)
-    else if (codepoint <= 0x7FF) {
-        result.push_back(static_cast<char>(0xC0 | ((codepoint >> 6) & 0x1F)));
-        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-
-    // Handle 3-byte UTF-8 (U+0800 to U+FFFF)
-    else if (codepoint <= 0xFFFF) {
-        result.push_back(static_cast<char>(0xE0 | ((codepoint >> 12) & 0x0F)));
-        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-
-    // Handle 4-byte UTF-8 (U+10000 to U+10FFFF)
-    else if (codepoint <= 0x10FFFF) {
-        result.push_back(static_cast<char>(0xF0 | ((codepoint >> 18) & 0x07)));
-        result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
-        result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
-        result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
-    }
-
-    return result;
-}
-
 char32_t Lexer::advance() {
-    CodepointInfo codepointInfo = decodeUTF8(m_pos);
-    m_pos += codepointInfo.byteLength;
+    char32_t cp = 0;
+    size_t bytes = utf8::decodeCodepoint(m_source, m_pos, cp);
+    m_pos += bytes;
     m_column += 1;
-    return codepointInfo.codepoint;
+    return cp;
 };
 
 char32_t Lexer::peek() const {
-    return decodeUTF8(m_pos).codepoint;
+    char32_t cp = 0;
+    utf8::decodeCodepoint(m_source, m_pos, cp);
+    return cp;
 };
 
 char32_t Lexer::lookahead(int i) const {
-    if (m_pos + i >= m_source.length()) {
-        return '\0';
+    char32_t cp = 0;
+    size_t bytes = 0;
+    size_t escapeSequenceEndPos = m_pos;
+    for (int count = 0; count <= i; ++count) {
+        if (escapeSequenceEndPos >= m_source.size()) {
+            return U'\0'; // End of source
+        }
+        cp = 0;
+        bytes = utf8::decodeCodepoint(m_source, escapeSequenceEndPos, cp);
+        escapeSequenceEndPos += bytes;
     }
-    return decodeUTF8(m_pos + i).codepoint;
+    return cp;
 };
 
 bool Lexer::match(const char32_t codepoint) {
@@ -224,18 +88,42 @@ void Lexer::reportWarning(const std::string& message) {
     });
 }
 
-
 std::string_view Lexer::getLexeme() const {
     return m_source.substr(m_start, m_pos - m_start);
 }
 
-void Lexer::addToken(TokenKind kind) {
+void Lexer::addToken(TokenKind kind, std::optional<std::string> lexeme) {
     size_t column = m_column - (m_pos - m_start);
     m_tokens.push_back({
         .kind = kind,
         .position = std::pair(m_line, column),
-        .lexeme = std::string(getLexeme())
+        .lexeme = lexeme.value_or(std::string(getLexeme()))
     });
+}
+
+std::string Lexer::normalizeToNFKC(const std::string_view lexeme) {
+    UErrorCode errorCode = U_ZERO_ERROR;
+
+    // Get NFKC Normalizer2 instance
+    const icu::Normalizer2* normalizer = icu::Normalizer2::getInstance(nullptr, "nfkc", UNORM2_COMPOSE, errorCode);
+    if (U_FAILURE(errorCode)) {
+        throw std::runtime_error("Failed to get Normalizer2 instance");
+    }
+
+    // Build UnicodeString from UTF-32 codepoints
+    icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(lexeme);
+
+    // Normalize to NFKC
+    icu::UnicodeString normalizedUnicodeString;
+    normalizer->normalize(ustr, normalizedUnicodeString, errorCode);
+    if (U_FAILURE(errorCode)) {
+        throw std::runtime_error("Normalization failed");
+    }
+
+    std::string normalizedLexeme;
+    normalizedUnicodeString.toUTF8String(normalizedLexeme);
+
+    return normalizedLexeme;
 }
 
 bool Lexer::isEnd() const {
@@ -274,7 +162,7 @@ bool Lexer::isDecimalDigit(char32_t codepoint) const {
     return (codepoint >= U'0' && codepoint <= U'9');
 }
 
-bool Lexer::isNum(char32_t codepoint) const {
+bool Lexer::isNumberStart(char32_t codepoint) const {
     return isDecimalDigit(codepoint) || (codepoint == U'.' && isDecimalDigit(peek())) || (codepoint == U'_' && isDecimalDigit(peek()));
 }
 
@@ -286,10 +174,226 @@ bool Lexer::isAlphaNum(char32_t codepoint) const {
     return isAlpha(codepoint) || isDecimalDigit(codepoint);
 }
 
+bool Lexer::isIdentifierStart(char32_t cp) {
+    return u_hasBinaryProperty(cp, UCHAR_XID_START);
+};
+
+bool Lexer::isIdentifierContinue(char32_t cp) {
+    return u_hasBinaryProperty(cp, UCHAR_XID_CONTINUE);
+};
+
+bool Lexer::matchEscapeSequence(EscapeSequenceErrorKind& errorKind) {
+    switch (peek()) {
+        case '\\':
+        case '\'':
+        case '\"':
+        case 'n' :
+        case 'r' :
+        case 't' :
+        case 'b' :
+        case 'f' :
+        case 'v' :
+        case '0' : {
+            advance();
+            return true;
+        }
+
+        // Hex escape: \xNN
+        case 'x' : {
+            advance(); // consume 'x`
+
+            std::string hexString;
+            hexString.reserve(2);
+
+            if (peek() == U'\'' || peek() == U'\"') {
+                errorKind = EscapeSequenceErrorKind::NumericEscapeTooShort;
+                return false;
+            }
+
+            if (!isHexDigit(peek())) {
+                errorKind = EscapeSequenceErrorKind::InvalidNumericEscape;
+                return false;
+            }
+
+            hexString += static_cast<char>(advance()); // Consume first hex digit
+
+            if (peek() == U'\'' || peek() == U'\"') {
+                errorKind = EscapeSequenceErrorKind::NumericEscapeTooShort;
+                return false;
+            }
+
+            if (!isHexDigit(peek())) {
+                errorKind = EscapeSequenceErrorKind::InvalidNumericEscape;
+                return false;
+            }
+
+            hexString += static_cast<char>(advance()); // Consume second hex digit
+
+            // Check if hex value is in range of 00 to 7f
+            uint32_t hexValue;
+            try {
+               hexValue = std::stoul(hexString, nullptr, 16);
+            } catch (const std::exception&) {
+                errorKind = EscapeSequenceErrorKind::HexOutOfRange;
+                return false;
+            }
+
+            if (hexValue > 0x7F) { // Check for 00-7F range
+                errorKind = EscapeSequenceErrorKind::HexOutOfRange;
+                return false;
+            }
+
+            return true;
+        }
+
+        // Unicode escape: \u{NNNNNN}
+        case 'u' : {
+            advance(); // Consume 'u'
+
+            if (!match(U'{')) {
+                errorKind = EscapeSequenceErrorKind::MalformedUnicodeSequence;
+                return false;
+            }
+
+            std::string hexString;
+            hexString.reserve(6);
+            int digitCount = 0;
+
+            while (!isEnd() && peek() != U'\'' && peek() != U'\"' && peek() != U'}') {
+                if (!isHexDigit(peek())) {
+                    errorKind = EscapeSequenceErrorKind::InvalidUnicodeChar;
+                    return false;
+                }
+                hexString += static_cast<char>(advance());
+                digitCount += 1;
+            }
+
+            if (!match(U'}')) {
+                errorKind = EscapeSequenceErrorKind::UnterminatedUnicode;
+                return false;
+            }
+
+            if (digitCount == 0) {
+                errorKind = EscapeSequenceErrorKind::EmptyUnicodeEscape;
+                return false;
+            }
+
+            if (digitCount > 6) {
+                errorKind = EscapeSequenceErrorKind::OverlongUnicodeChar;
+                return false;
+            }
+
+            uint32_t hexValue;
+            try {
+                hexValue = std::stoul(hexString, nullptr, 16);
+            } catch (const std::out_of_range&) {
+                // Max FFFFFF is 16,777,215, fits in unsigned long. Unlikely.
+                errorKind = EscapeSequenceErrorKind::UnicodeOutOfRange;
+                return false;
+            }
+
+            if (hexValue > 0x10FFFF || (hexValue >= 0xD800 && hexValue <= 0xDFFF)) {
+                errorKind = EscapeSequenceErrorKind::UnicodeOutOfRange;
+                return false;
+            }
+
+            return true;
+        }
+        default: {
+            errorKind = EscapeSequenceErrorKind::UnknownEscape;
+            return false;
+        }
+    }
+}
+
 void Lexer::skipWhitespace(char32_t codepoint) {
     if (codepoint == U'\n') {
         m_line += 1;
         m_column = 1;
+    }
+}
+
+void Lexer::lexLineComment() {
+    std::optional<TokenKind> token;
+
+    if (match(U'/')) {
+        token = TOK_DOC_COMMENT_LINE_OUTER;
+    } else if (match(U'!')) {
+        token = TOK_DOC_COMMENT_LINE_INNER;
+    }
+
+    while (!isEnd() && peek() != U'\n') {
+        advance();
+    }
+
+    if (token.has_value()) {
+        return addToken(token.value());
+    }
+}
+
+void Lexer::lexBlockComment() {
+    int depth = 1;
+    std::optional<TokenKind> token;
+
+    if (match(U'*')) {
+        token = TOK_DOC_COMMENT_BLOCK_OUTER;
+    } else if (match(U'!')) {
+        token = TOK_DOC_COMMENT_BLOCK_INNER;
+    }
+
+    while (!isEnd()) {
+        if (peek() == U'/' && lookahead() == U'*') {
+            // Nested opening block comment
+            advance();
+            advance();
+            depth += 1;
+        } else if (peek() == U'*' && lookahead() == U'/') {
+            // Closing block comment
+            advance();
+            advance();
+            depth -= 1;
+        }
+
+        // Break if depth is zero, found closing delimiter for block comment
+        if (depth == 0) {
+            break;
+        }
+
+        if (peek() == U'\n') {
+            m_line += 1;
+            m_column = 1;
+        }
+
+        advance();
+    }
+
+    // Handle the case where the comment is unterminated (depth > 0)
+    if (depth > 0) {
+        reportError(std::format("Unterminated block comment"));
+        return addToken(TOK_ERROR);
+    }
+
+    if (token.has_value()) {
+        addToken(token.value());
+    }
+}
+
+void Lexer::lexKeywordOrIdentifier() {
+    // Keep advancing codepoints as long as they are valid continuation characters
+    while (!isEnd() && isIdentifierContinue(peek())) {
+        advance();
+    }
+
+    std::string normalizedUTF8Lexeme = normalizeToNFKC(getLexeme());
+
+    // Look up the normalized lexeme in the keyword map
+    auto keywordIt = g_keywordMap.find(normalizedUTF8Lexeme);
+
+    // If it's a keyword, add the keyword token, otherwise add it as an identifier
+    if (keywordIt != g_keywordMap.end()) {
+        addToken(keywordIt->second);
+    } else {
+        addToken(TOK_IDENTIFIER, normalizedUTF8Lexeme);
     }
 }
 
@@ -439,27 +543,17 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     // Handle valid integer suffixes like i32, u64, etc.
     if (!isFloat && (peek() == U'i' || peek() == U'I' || peek() == U'u' || peek() == U'U')) {
         if (lookahead() == U'8') {
-            advance();
-            advance();
+            advance(); advance();
         } else if (lookahead() == U'1') {
             if (lookahead(2) == U'6') {
-                advance();
-                advance();
-                advance();
+                advance(); advance(); advance();
             } else if (lookahead(2) == U'2' && lookahead(3) == U'8') {
-                advance();
-                advance();
-                advance();
-                advance();
+                advance(); advance(); advance(); advance();
             }
         } else if (lookahead() == U'3' && lookahead(2) == U'2') {
-            advance();
-            advance();
-            advance();
+            advance(); advance(); advance();
         } else if (lookahead() == U'6' && lookahead(2) == U'4') {
-            advance();
-            advance();
-            advance();
+            advance(); advance(); advance();
         }
     }
 
@@ -467,13 +561,9 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     if (peek() == U'f' || peek() == U'F') {
         isFloat = true;
         if (lookahead() == U'3' && lookahead(2) == U'2') {
-            advance();
-            advance();
-            advance();
+            advance(); advance(); advance();
         } else if (lookahead() == U'6' && lookahead(2) == U'4') {
-            advance();
-            advance();
-            advance();
+            advance(); advance(); advance();
         }
     }
 
@@ -482,7 +572,7 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
         invalidSuffix += advance();
     }
 
-    // === Final validations and error reports ===
+    // Final validations and error reports
 
     if (invalidSuffix.size() > 0) {
         reportError(std::format("invalid suffix `{}` for {} literal", invalidSuffix, isFloat ? "float" : "number"));
@@ -553,22 +643,179 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     return addToken(isFloat ? TOK_FLOAT_LITERAL : TOK_INTEGER_LITERAL);
 }
 
-void Lexer::lexSymbol(char32_t codepoint) {
-    // Start with the first character
-    std::string symbol = codepointToString(codepoint);
+// TODO: Handle multiCodepoint uncode '😀😀'
 
-    // Check if the symbol exist
-    auto symbolIt = s_symbols.find(symbol);
-    if (symbolIt == s_symbols.end()) {
-        reportError(std::format("Unrecognized symbol: {}", codepointToString(codepoint)));
+void Lexer::lexCharLiteral() {
+    bool hasMultiCodepoint = false;
+    bool hasUnterminatedQuote = false;
+    bool hasEscapeSequenceError = false;
+    EscapeSequenceErrorKind escapeSequenceErrorKind;
+
+    if (match('\'')) {
+        reportError("empty char literal");
+        return addToken(TOK_ERROR);
+    }
+
+    if (match(U'\\')) {
+        hasEscapeSequenceError = !matchEscapeSequence(escapeSequenceErrorKind);
+    } else {
+        advance(); // consume the first codepoint for both char & string literal
+    }
+
+    int escapeSequenceEndPos = m_pos;
+
+    // Consume all the codepoint until ending single quote
+    if (peek() != U'\'') {
+        // FIX: Make change isAlphaNum is to be unicode aware
+        while(!isEnd() && peek() != U'\n' && isAlphaNum(peek()) && peek() != U'\'') {
+            advance();
+        }
+        if (escapeSequenceErrorKind == EscapeSequenceErrorKind::InvalidUnicodeChar) {
+            while(!isEnd() && peek() != U'\n' && (isAlphaNum(peek()) || peek() == U'}') && peek() != U'\'') {
+                advance();
+            }
+        }
+
+        if (match(U'\'')) {
+            hasMultiCodepoint = true;
+        } else {
+            hasUnterminatedQuote = true;
+        }
+    } else {
+        advance(); // consume the closing quotes
+    }
+
+    if (hasUnterminatedQuote) {
+        reportError("unterminated character literal");
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasEscapeSequenceError) {
+        switch (escapeSequenceErrorKind) {
+            case EscapeSequenceErrorKind::UnknownEscape:
+                reportError(std::format("unknown character escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                break;
+            case EscapeSequenceErrorKind::NumericEscapeTooShort:
+                reportError("numeric character escape is too short");
+                break;
+            case EscapeSequenceErrorKind::InvalidNumericEscape:
+                reportError(std::format("invalid character in numeric character escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                break;
+            case EscapeSequenceErrorKind::HexOutOfRange:
+                reportError("out of range hex escape");
+                break;
+            case EscapeSequenceErrorKind::MalformedUnicodeSequence:
+                reportError("incorrect unicode escape sequence");
+                break;
+            case EscapeSequenceErrorKind::EmptyUnicodeEscape:
+                reportError("empty unicode escape");
+                break;
+            case EscapeSequenceErrorKind::InvalidUnicodeChar:
+                reportError(std::format("invalid character in unicode escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                break;
+            case EscapeSequenceErrorKind::UnterminatedUnicode:
+                reportError("unterminated unicode esscape");
+                break;
+            case EscapeSequenceErrorKind::OverlongUnicodeChar:
+                reportError("overlong unicode escape");
+                break;
+            case EscapeSequenceErrorKind::UnicodeOutOfRange:
+                reportError("invalid character escape");
+                break;
+        }
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasMultiCodepoint) {
+        reportError("character literal may only contain one codepoint");
+        return addToken(TOK_ERROR);
+    }
+
+    return addToken(TOK_CHAR);
+}
+
+void Lexer::lexStringLiteral() {
+    bool hasUnterminatedQuote = false;
+    std::vector<std::pair<EscapeSequenceErrorKind, size_t>> escapeSequenceErrors;
+
+    while(!isEnd() && peek() != U'\n' && peek() != '\"') {
+        if (match('\\')) {
+            EscapeSequenceErrorKind escapeSequenceErrorKind;
+            bool isValidEscapeSequence = matchEscapeSequence(escapeSequenceErrorKind);
+            if (!isValidEscapeSequence) {
+                escapeSequenceErrors.push_back(std::pair(escapeSequenceErrorKind, m_pos));
+            }
+        } else {
+            advance();
+        }
+    }
+
+    if (!match(U'\"')) {
+        hasUnterminatedQuote = true;
+    }
+
+    if (escapeSequenceErrors.size() > 0) {
+        for (auto& escapeSequenceErrors : escapeSequenceErrors) {
+            size_t escapeSequenceEndPos = escapeSequenceErrors.second;
+            switch (escapeSequenceErrors.first) {
+                case EscapeSequenceErrorKind::UnknownEscape:
+                    reportError(std::format("unknown character escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                    break;
+                case EscapeSequenceErrorKind::NumericEscapeTooShort:
+                    reportError("numeric character escape is too short");
+                    break;
+                case EscapeSequenceErrorKind::InvalidNumericEscape:
+                    reportError(std::format("invalid character in numeric character escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                    break;
+                case EscapeSequenceErrorKind::HexOutOfRange:
+                    reportError("out of range hex escape");
+                    break;
+                case EscapeSequenceErrorKind::MalformedUnicodeSequence:
+                    reportError("incorrect unicode escape sequence");
+                    break;
+                case EscapeSequenceErrorKind::EmptyUnicodeEscape:
+                    reportError("empty unicode escape");
+                    break;
+                case EscapeSequenceErrorKind::InvalidUnicodeChar:
+                    reportError(std::format("invalid character in unicode escape: `{}`", m_source.at(escapeSequenceEndPos)));
+                    break;
+                case EscapeSequenceErrorKind::UnterminatedUnicode:
+                    reportError("unterminated unicode esscape");
+                    break;
+                case EscapeSequenceErrorKind::OverlongUnicodeChar:
+                    reportError("overlong unicode escape");
+                    break;
+                case EscapeSequenceErrorKind::UnicodeOutOfRange:
+                    reportError("invalid character escape");
+                    break;
+            }
+        }
+        return addToken(TOK_ERROR);
+    }
+
+    if (hasUnterminatedQuote) {
+        reportError("Unterminated string literal");
+        return addToken(TOK_ERROR);
+    }
+
+    return addToken(TOK_STRING);
+}
+
+void Lexer::lexSymbol(char32_t cp) {
+    std::string symbol = utf8::encodeCodepoint(cp);
+
+    auto symbolIt = g_symbolMap.find(symbol);
+    if (symbolIt == g_symbolMap.end()) {
+        reportError(std::format("Unrecognized symbol '{}' (U+{:04X})", symbol, static_cast<uint32_t>(cp)));
         return addToken(TOK_ERROR);
     }
 
     // Try to extend the symbol as long as it's exist
     while (!isEnd()) {
         // Check if the extended symbol exist
-        auto extendedSymbolIt = s_symbols.find(symbol + codepointToString(peek()));
-        if (extendedSymbolIt != s_symbols.end()) {
+        std::string nextSymbol = utf8::encodeCodepoint(peek());
+        auto extendedSymbolIt = g_symbolMap.find(symbol + nextSymbol);
+        if (extendedSymbolIt != g_symbolMap.end()) {
             symbol += advance();
             symbolIt = extendedSymbolIt;
         } else {
@@ -583,13 +830,23 @@ void Lexer::lexSymbol(char32_t codepoint) {
 std::vector<Token>& Lexer::tokenize() {
     while (!isEnd()) {
         m_start = m_pos;
-        const char32_t codepoint = advance();
-        if (isWhitespace(codepoint)) {
-            skipWhitespace(codepoint);
-        } else if (isNum(codepoint)) {
-            lexNumberLiteral(codepoint);
+        const char32_t cp = advance();
+        if (isWhitespace(cp)) {
+            skipWhitespace(cp);
+        } else if (cp == U'/' && match(U'/')) {
+            lexLineComment();
+        } else if (cp == U'/' && match(U'*')) {
+            lexBlockComment();
+        } else if (isIdentifierStart(cp)) {
+            lexKeywordOrIdentifier();
+        } else if (isNumberStart(cp)) {
+            lexNumberLiteral(cp);
+        } else if (cp == U'\'') {
+            lexCharLiteral();
+        } else if (cp == U'\"') {
+            lexStringLiteral();
         } else {
-            lexSymbol(codepoint);
+            lexSymbol(cp);
         }
     }
 
