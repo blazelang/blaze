@@ -16,8 +16,7 @@ Lexer::Lexer(
     ISourceManager::FileID fileID,
     ISourceManager& sourceManager,
     IDiagnosticEngine& diagnosticEngine
-) :
-    m_fileID(fileID),
+) : m_fileID(fileID),
     m_sourceManager(sourceManager),
     m_diagnosticEngine(diagnosticEngine),
     m_source(sourceManager.getBuffer(fileID)),
@@ -643,8 +642,6 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     return addToken(isFloat ? TOK_FLOAT_LITERAL : TOK_INTEGER_LITERAL);
 }
 
-// TODO: Handle multiCodepoint uncode '😀😀'
-
 void Lexer::lexCharLiteral() {
     bool hasMultiCodepoint = false;
     bool hasUnterminatedQuote = false;
@@ -666,16 +663,9 @@ void Lexer::lexCharLiteral() {
 
     // Consume all the codepoint until ending single quote
     if (peek() != U'\'') {
-        // FIX: Make change isAlphaNum is to be unicode aware
-        while(!isEnd() && peek() != U'\n' && isAlphaNum(peek()) && peek() != U'\'') {
+        while(!isEnd() && peek() != U'\n' && peek() != U'\'') {
             advance();
         }
-        if (escapeSequenceErrorKind == EscapeSequenceErrorKind::InvalidUnicodeChar) {
-            while(!isEnd() && peek() != U'\n' && (isAlphaNum(peek()) || peek() == U'}') && peek() != U'\'') {
-                advance();
-            }
-        }
-
         if (match(U'\'')) {
             hasMultiCodepoint = true;
         } else {
