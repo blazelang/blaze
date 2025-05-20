@@ -1,29 +1,18 @@
 #include "Lexer/Lexer.hpp"
 
-#include <cstdint>
-#include <exception>
 #include <optional>
 #include <string>
-#include <format>
 #include <string_view>
 
-#include <unicode/normalizer2.h>
-
-#include "Lexer/Token.hpp"
+#include "Diagnostics/DiagnosticID.hpp"
+#include "Diagnostics/DiagnosticBuilder.hpp"
 #include "Utils/Utf8.hpp"
 
-Lexer::Lexer(
-    ISourceManager::FileID fileID,
-    ISourceManager& sourceManager,
-    IDiagnosticEngine& diagnosticEngine
-) : m_fileID(fileID),
+Lexer::Lexer(ISourceManager::FileID fileID, ISourceManager& sourceManager, IDiagnosticEngine& diagnosticEngine)
+:   m_fileID(fileID),
     m_sourceManager(sourceManager),
     m_diagnosticEngine(diagnosticEngine),
-    m_source(sourceManager.getBuffer(fileID)),
-    m_start(0),
-    m_pos(0),
-    m_line(1),
-    m_column(1) {}
+    m_source(sourceManager.getBuffer(fileID)) {}
 
 char32_t Lexer::advance() {
     char32_t cp = 0;
@@ -42,14 +31,14 @@ char32_t Lexer::peek() const {
 char32_t Lexer::lookahead(int i) const {
     char32_t cp = 0;
     size_t bytes = 0;
-    size_t escapeSequenceEndPos = m_pos;
+    size_t pos = m_pos;
     for (int count = 0; count <= i; ++count) {
-        if (escapeSequenceEndPos >= m_source.size()) {
+        if (pos >= m_source.size()) {
             return U'\0'; // End of source
         }
         cp = 0;
-        bytes = utf8::decodeCodepoint(m_source, escapeSequenceEndPos, cp);
-        escapeSequenceEndPos += bytes;
+        bytes = utf8::decodeCodepoint(m_source, pos, cp);
+        pos += bytes;
     }
     return cp;
 };
@@ -62,67 +51,16 @@ bool Lexer::match(const char32_t codepoint) {
     return true;
 };
 
-SourcePosition Lexer::currentPosition() const {
-    return {
-        .fileName = m_sourceManager.getPath(m_fileID),
-        .position = std::pair(m_line, m_column),
-    };
-}
-
-void Lexer::reportError(const std::string& message) {
-    m_diagnosticEngine.report({
-        .phrase = DiagnosticPhrase::Lexer,
-        .lvl = DiagnosticLevel::Error,
-        .position = currentPosition(),
-        .message = message,
-    });
-}
-
-void Lexer::reportWarning(const std::string& message) {
-    m_diagnosticEngine.report({
-        .phrase = DiagnosticPhrase::Lexer,
-        .lvl = DiagnosticLevel::Warning,
-        .position = currentPosition(),
-        .message = message,
-    });
-}
-
 std::string_view Lexer::getLexeme() const {
     return m_source.substr(m_start, m_pos - m_start);
 }
 
 void Lexer::addToken(TokenKind kind, std::optional<std::string> lexeme) {
-    size_t column = m_column - (m_pos - m_start);
     m_tokens.push_back({
         .kind = kind,
-        .position = std::pair(m_line, column),
+        .position = std::pair(m_startLine, m_startColumn),
         .lexeme = lexeme.value_or(std::string(getLexeme()))
     });
-}
-
-std::string Lexer::normalizeToNFKC(const std::string_view lexeme) {
-    UErrorCode errorCode = U_ZERO_ERROR;
-
-    // Get NFKC Normalizer2 instance
-    const icu::Normalizer2* normalizer = icu::Normalizer2::getInstance(nullptr, "nfkc", UNORM2_COMPOSE, errorCode);
-    if (U_FAILURE(errorCode)) {
-        throw std::runtime_error("Failed to get Normalizer2 instance");
-    }
-
-    // Build UnicodeString from UTF-32 codepoints
-    icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(lexeme);
-
-    // Normalize to NFKC
-    icu::UnicodeString normalizedUnicodeString;
-    normalizer->normalize(ustr, normalizedUnicodeString, errorCode);
-    if (U_FAILURE(errorCode)) {
-        throw std::runtime_error("Normalization failed");
-    }
-
-    std::string normalizedLexeme;
-    normalizedUnicodeString.toUTF8String(normalizedLexeme);
-
-    return normalizedLexeme;
 }
 
 bool Lexer::isEnd() const {
@@ -196,7 +134,6 @@ bool Lexer::matchEscapeSequence(EscapeSequenceErrorKind& errorKind) {
             advance();
             return true;
         }
-
         // Hex escape: \xNN
         case 'x' : {
             advance(); // consume 'x`
@@ -244,7 +181,6 @@ bool Lexer::matchEscapeSequence(EscapeSequenceErrorKind& errorKind) {
 
             return true;
         }
-
         // Unicode escape: \u{NNNNNN}
         case 'u' : {
             advance(); // Consume 'u'
@@ -368,7 +304,10 @@ void Lexer::lexBlockComment() {
 
     // Handle the case where the comment is unterminated (depth > 0)
     if (depth > 0) {
-        reportError(std::format("Unterminated block comment"));
+        m_diagnosticEngine.report(DiagnosticID::UnterminatedBlockComment)
+            .message("Unterminated {} comment", token.has_value() ? "document" : "block")
+            .span({ m_fileID, m_startLine, m_startColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -383,7 +322,7 @@ void Lexer::lexKeywordOrIdentifier() {
         advance();
     }
 
-    std::string normalizedUTF8Lexeme = normalizeToNFKC(getLexeme());
+    std::string normalizedUTF8Lexeme = utf8::normalizeToNFKC(getLexeme());
 
     // Look up the normalized lexeme in the keyword map
     auto keywordIt = g_keywordMap.find(normalizedUTF8Lexeme);
@@ -405,20 +344,23 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     bool hasEmptyDigit = false;
     bool hasInValidDigit = false;
     bool hasEmptyExponent = false;
-    bool hasLeadingDecimalDot = false;
-    bool hasMultipleDecimalDot = false;
+    bool hasLeadingDot = false;
+    bool hasMultipleDot = false;
     bool hasConsecutiveUnderscore = false;
     bool hasLeadingUnderscore = false;
     bool hasTailingUnderscore = false;
     bool hasUnderscoreBeforeBasePrefix = false;
     bool hasUnderscoreAfterBasePrefix = false;
-    bool hasUnderscoreBeforeDecimalPoint = false;
+    bool hasUnderscoreBeforeDot = false;
 
     std::string invalidSuffix;
 
+    size_t invalidLine = m_startLine;
+    size_t invalidColumn = m_startColumn;
+
     // Case when the literal starts with '.' (e.g., ".123") which is invalid
     if (codepoint == U'.') {
-        hasLeadingDecimalDot = true;
+        hasLeadingDot = true;
         advance();
     }
 
@@ -487,7 +429,7 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
         // check for underscore before decimal point
         if (hasTailingUnderscore) {
             hasTailingUnderscore = false;
-            hasUnderscoreBeforeDecimalPoint = true;
+            hasUnderscoreBeforeDot = true;
         } else {
             isFloat = true;
         }
@@ -514,7 +456,7 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
 
     // Check for multiple decimal dot (1.2.3.4)
     if (isFloat && peek() == U'.' && isDecimalDigit(lookahead())) {
-        hasMultipleDecimalDot = true;
+        hasMultipleDot = true;
         advance();
         while (isDecimalDigit(peek()) || peek() == U'.') {
             advance();
@@ -567,74 +509,109 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     }
 
     // Catch any remaining invalid suffix
-    while (isAlphaNum(peek())) {
-        invalidSuffix += advance();
+    if (!hasInValidDigit && isAlphaNum(peek())) {
+        invalidLine = m_line;
+        invalidColumn = m_column;
+        while (isAlphaNum(peek())) {
+            invalidSuffix += advance();
+        }
     }
 
     // Final validations and error reports
 
     if (invalidSuffix.size() > 0) {
-        reportError(std::format("invalid suffix `{}` for {} literal", invalidSuffix, isFloat ? "float" : "number"));
-        if (isFloat) {
-            reportWarning("valid suffixes are `f32` and `f64`");
-        } else {
-            reportWarning("valid suffix must be one of the numeric types (`i32` ,`u32`, `isize`, `usize` etc.)");
-        }
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralInvalidSuffix)
+            .message("Invalid suffix `{}` on number literal", invalidSuffix)
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasEmptyDigit) {
-        reportError("no valid digit found for number");
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralEmptyDigits)
+            .message("Numeric literal contains no digits")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
-    if (hasLeadingDecimalDot) {
-        reportError("float literals must have an integer part before decimal dot");
+    if (hasLeadingDot) {
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralLeadingDot)
+            .message("Floating-point literals must include digits before the decimal point")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
-    if (hasMultipleDecimalDot) {
-        reportError(std::format("multiple decimal dots are not allowed in {} literal", isFloat ? "float" : "number"));
+    if (hasMultipleDot) {
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralMultipleDots)
+            .message("Numeric literal contains multiple decimal points")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasInValidDigit) {
-        reportError(std::format("invalid digit for a base {} literal", static_cast<int>(base)));
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralInvalidDigit)
+            .message("Numeric literal contains invalid digit(s)")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasEmptyExponent) {
-        reportError("expected at least one digit in exponent");
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralEmptyExponent)
+            .message("Exponent in numeric literal must contain at least one digit")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasConsecutiveUnderscore) {
-        reportError(std::format("multiple consecutive underscores are not allowed in {} literal", isFloat ? "float" : "number"));
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralConsecutiveUnderscore)
+            .message("Consecutive underscores are not permitted within numeric literals")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasLeadingUnderscore) {
-        reportError(std::format("leading underscore are not allowed in {} literal", isFloat ? "float" : "number"));
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralLeadingUnderscore)
+            .message("Numeric literals cannot begin with an underscore")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasTailingUnderscore) {
-        reportError(std::format("tailing underscore are not allowed in {} literal", isFloat ? "float" : "number"));
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralTrailingUnderscore)
+            .message("Numeric literals cannot end with an underscore")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasUnderscoreBeforeBasePrefix) {
-        reportError("underscores are not allowed before base suffix in numeric literal");
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreBeforePrefix)
+            .message("Underscores are not allowed before the base prefix in numeric literals")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasUnderscoreAfterBasePrefix) {
-        reportError("underscores are not allowed after base suffix in numeric literal");
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreAfterPrefix)
+            .message("Underscores are not allowed immediately after the base prefix in numeric literals")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
-    if (hasUnderscoreBeforeDecimalPoint) {
-        reportError("underscores are not allowed before decimal point in numeric literal");
+    if (hasUnderscoreBeforeDot) {
+        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreBeforeDot)
+            .message("Underscores are not allowed immediately before the decimal point in numeric literals")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -648,8 +625,14 @@ void Lexer::lexCharLiteral() {
     bool hasEscapeSequenceError = false;
     EscapeSequenceErrorKind escapeSequenceErrorKind;
 
+    size_t invalidLine = m_startLine;
+    size_t invalidColumn = m_startColumn;
+
     if (match('\'')) {
-        reportError("empty char literal");
+        m_diagnosticEngine.report(DiagnosticID::EmptyChar)
+            .message("Character literal cannot be empty")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -658,8 +641,6 @@ void Lexer::lexCharLiteral() {
     } else {
         advance(); // consume the first codepoint for both char & string literal
     }
-
-    int escapeSequenceEndPos = m_pos;
 
     // Consume all the codepoint until ending single quote
     if (peek() != U'\'') {
@@ -676,48 +657,23 @@ void Lexer::lexCharLiteral() {
     }
 
     if (hasUnterminatedQuote) {
-        reportError("unterminated character literal");
+        m_diagnosticEngine.report(DiagnosticID::UnterminatedChar)
+            .message("Unterminated character literal")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasEscapeSequenceError) {
-        switch (escapeSequenceErrorKind) {
-            case EscapeSequenceErrorKind::UnknownEscape:
-                reportError(std::format("unknown character escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                break;
-            case EscapeSequenceErrorKind::NumericEscapeTooShort:
-                reportError("numeric character escape is too short");
-                break;
-            case EscapeSequenceErrorKind::InvalidNumericEscape:
-                reportError(std::format("invalid character in numeric character escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                break;
-            case EscapeSequenceErrorKind::HexOutOfRange:
-                reportError("out of range hex escape");
-                break;
-            case EscapeSequenceErrorKind::MalformedUnicodeSequence:
-                reportError("incorrect unicode escape sequence");
-                break;
-            case EscapeSequenceErrorKind::EmptyUnicodeEscape:
-                reportError("empty unicode escape");
-                break;
-            case EscapeSequenceErrorKind::InvalidUnicodeChar:
-                reportError(std::format("invalid character in unicode escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                break;
-            case EscapeSequenceErrorKind::UnterminatedUnicode:
-                reportError("unterminated unicode esscape");
-                break;
-            case EscapeSequenceErrorKind::OverlongUnicodeChar:
-                reportError("overlong unicode escape");
-                break;
-            case EscapeSequenceErrorKind::UnicodeOutOfRange:
-                reportError("invalid character escape");
-                break;
-        }
+        // TODO: properly handle escape error kind for char literal
         return addToken(TOK_ERROR);
     }
 
     if (hasMultiCodepoint) {
-        reportError("character literal may only contain one codepoint");
+        m_diagnosticEngine.report(DiagnosticID::MultiChar)
+            .message("Character literal must contain only one character")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -726,15 +682,16 @@ void Lexer::lexCharLiteral() {
 
 void Lexer::lexStringLiteral() {
     bool hasUnterminatedQuote = false;
-    std::vector<std::pair<EscapeSequenceErrorKind, size_t>> escapeSequenceErrors;
+    bool hasEscapeSequenceError = false;
+
+    size_t invalidLine = m_startLine;
+    size_t invalidColumn = m_startColumn;
 
     while(!isEnd() && peek() != U'\n' && peek() != '\"') {
         if (match('\\')) {
             EscapeSequenceErrorKind escapeSequenceErrorKind;
-            bool isValidEscapeSequence = matchEscapeSequence(escapeSequenceErrorKind);
-            if (!isValidEscapeSequence) {
-                escapeSequenceErrors.push_back(std::pair(escapeSequenceErrorKind, m_pos));
-            }
+            hasEscapeSequenceError = matchEscapeSequence(escapeSequenceErrorKind);
+            // TODO: properly handle escape error kind for string literal
         } else {
             advance();
         }
@@ -744,47 +701,11 @@ void Lexer::lexStringLiteral() {
         hasUnterminatedQuote = true;
     }
 
-    if (escapeSequenceErrors.size() > 0) {
-        for (auto& escapeSequenceErrors : escapeSequenceErrors) {
-            size_t escapeSequenceEndPos = escapeSequenceErrors.second;
-            switch (escapeSequenceErrors.first) {
-                case EscapeSequenceErrorKind::UnknownEscape:
-                    reportError(std::format("unknown character escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                    break;
-                case EscapeSequenceErrorKind::NumericEscapeTooShort:
-                    reportError("numeric character escape is too short");
-                    break;
-                case EscapeSequenceErrorKind::InvalidNumericEscape:
-                    reportError(std::format("invalid character in numeric character escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                    break;
-                case EscapeSequenceErrorKind::HexOutOfRange:
-                    reportError("out of range hex escape");
-                    break;
-                case EscapeSequenceErrorKind::MalformedUnicodeSequence:
-                    reportError("incorrect unicode escape sequence");
-                    break;
-                case EscapeSequenceErrorKind::EmptyUnicodeEscape:
-                    reportError("empty unicode escape");
-                    break;
-                case EscapeSequenceErrorKind::InvalidUnicodeChar:
-                    reportError(std::format("invalid character in unicode escape: `{}`", m_source.at(escapeSequenceEndPos)));
-                    break;
-                case EscapeSequenceErrorKind::UnterminatedUnicode:
-                    reportError("unterminated unicode esscape");
-                    break;
-                case EscapeSequenceErrorKind::OverlongUnicodeChar:
-                    reportError("overlong unicode escape");
-                    break;
-                case EscapeSequenceErrorKind::UnicodeOutOfRange:
-                    reportError("invalid character escape");
-                    break;
-            }
-        }
-        return addToken(TOK_ERROR);
-    }
-
     if (hasUnterminatedQuote) {
-        reportError("Unterminated string literal");
+        m_diagnosticEngine.report(DiagnosticID::UnterminatedString)
+            .message("Unterminated string literal")
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -794,9 +715,15 @@ void Lexer::lexStringLiteral() {
 void Lexer::lexSymbol(char32_t cp) {
     std::string symbol = utf8::encodeCodepoint(cp);
 
+    size_t invalidLine = m_startLine;
+    size_t invalidColumn = m_startColumn;
+
     auto symbolIt = g_symbolMap.find(symbol);
     if (symbolIt == g_symbolMap.end()) {
-        reportError(std::format("Unrecognized symbol '{}' (U+{:04X})", symbol, static_cast<uint32_t>(cp)));
+        m_diagnosticEngine.report(DiagnosticID::UnrecognizedSymbol)
+            .message("Unrecogized symbol `{}`", symbol)
+            .span({ m_fileID, invalidLine, invalidColumn })
+            .build();
         return addToken(TOK_ERROR);
     }
 
@@ -820,6 +747,8 @@ void Lexer::lexSymbol(char32_t cp) {
 std::vector<Token>& Lexer::tokenize() {
     while (!isEnd()) {
         m_start = m_pos;
+        m_startLine = m_line;
+        m_startColumn = m_column;
         const char32_t cp = advance();
         if (isWhitespace(cp)) {
             skipWhitespace(cp);
@@ -844,7 +773,7 @@ std::vector<Token>& Lexer::tokenize() {
     addToken(TOK_EOF);
 
     // Reset values
-    m_start = 0; m_pos = 0; m_line = 1; m_column = 1;
+    m_start = 0; m_pos = 0; m_line = 1; m_column = 1; m_startLine = 1; m_startColumn = 1;
 
     return m_tokens;
 }

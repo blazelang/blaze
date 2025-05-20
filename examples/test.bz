@@ -1,1 +1,1 @@
-'\u{gggg}; let num = "";
+let num = "\a\a";

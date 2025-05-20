@@ -2,7 +2,7 @@
 
 #include <gmock/gmock.h>
 
-#include "SourceManager/ISourceManager.hpp"
+#include "SourceManager/SourceManager.hpp"
 
 class MockSourceManager : public ISourceManager {
 public:
@@ -13,6 +13,4 @@ public:
     MOCK_METHOD(std::string_view, getBuffer, (ISourceManager::FileID fileID), (const, override));
 
     MOCK_METHOD(std::string_view, getPath, (ISourceManager::FileID fileID), (const, override));
-
-    MOCK_METHOD(std::string_view, getLine, (ISourceManager::FileID fileID, size_t offset), (const, override));
 };

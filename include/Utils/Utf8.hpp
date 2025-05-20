@@ -1,7 +1,7 @@
+#pragma once
+
 #include <string>
-#include <cstdint>
-#include <unicode/umachine.h>
-#include <unicode/utf8.h>
+#include <unicode/normalizer2.h>
 
 namespace utf8 {
     /// Decodes a single UTF-8 codepoint from input[index]
@@ -44,5 +44,30 @@ namespace utf8 {
         U8_APPEND_UNSAFE(reinterpret_cast<uint8_t*>(buffer), offset, static_cast<UChar32>(cp));
 
         return std::string(buffer, buffer + offset);
+    }
+
+    inline std::string normalizeToNFKC(const std::string_view lexeme) {
+        UErrorCode errorCode = U_ZERO_ERROR;
+
+        // Get NFKC Normalizer2 instance
+        const icu::Normalizer2* normalizer = icu::Normalizer2::getInstance(nullptr, "nfkc", UNORM2_COMPOSE, errorCode);
+        if (U_FAILURE(errorCode)) {
+            throw std::runtime_error("Failed to get Normalizer2 instance");
+        }
+
+        // Build UnicodeString from UTF-32 codepoints
+        icu::UnicodeString ustr = icu::UnicodeString::fromUTF8(lexeme);
+
+        // Normalize to NFKC
+        icu::UnicodeString normalizedUnicodeString;
+        normalizer->normalize(ustr, normalizedUnicodeString, errorCode);
+        if (U_FAILURE(errorCode)) {
+            throw std::runtime_error("Normalization failed");
+        }
+
+        std::string normalizedLexeme;
+        normalizedUnicodeString.toUTF8String(normalizedLexeme);
+
+        return normalizedLexeme;
     }
 }

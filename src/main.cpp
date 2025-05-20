@@ -1,6 +1,5 @@
 #include <optional>
 #include <iostream>
-#include <format>
 
 #include "Lexer/Lexer.hpp"
 #include "Lexer/Token.hpp"
@@ -28,14 +27,11 @@ int main(int argc, char** argv) {
     std::vector<Token>& tokens = lexer.tokenize();
 
     // Print all tokens generated from lexer
-    for (const auto& token : tokens) {
-        std::cout << std::format("Token: {}", TokenKindToString(token)) << '\n';
-    }
+    // for (const auto& token : tokens) {
+    //     std::cout << std::format("Token: {}", TokenKindToString(token)) << '\n';
+    // }
 
-    if (diagnosticEngine.hasErrors() || diagnosticEngine.hasWarnings()) {
-        diagnosticEngine.printDiagnostics();
-        diagnosticEngine.clearDiagnostics();
-    }
+    diagnosticEngine.printDiagnostics();
 
     // skip codegen if any errors occurred
     if (diagnosticEngine.hasErrors()) {

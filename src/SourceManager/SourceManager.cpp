@@ -46,18 +46,6 @@ std::string_view SourceManager::getPath(FileID fileID) const {
     return std::string_view(source.path);
 }
 
-std::string_view SourceManager::getLine(FileID fileID, size_t offset) const {
-    const SourceManager::SourceFile& sourceFile = m_sources.at(fileID);
-    const std::string_view content = sourceFile.source;
-
-    size_t end = content.find('\n', offset);
-    if (end == std::string::npos) {
-        end = content.size();
-    }
-
-    return std::string_view(content).substr(offset, end - offset);
-}
-
 SourceManager::~SourceManager() {
     m_sources.clear();
     m_pathToID.clear();

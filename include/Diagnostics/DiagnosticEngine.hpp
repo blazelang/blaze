@@ -1,29 +1,37 @@
 #pragma once
 
-#include <vector>
+#include <memory>
 
-#include "Diagnostics/IDiagnosticEngine.hpp"
+#include <fmt/format.h>
+
+#include "Diagnostics/Diagnostic.hpp"
+#include "Diagnostics/DiagnosticID.hpp"
+#include "Diagnostics/DiagnosticBuilder.hpp"
 #include "SourceManager/SourceManager.hpp"
 
+class IDiagnosticEngine {
+public:
+    virtual ~IDiagnosticEngine() = default;
+
+    virtual DiagnosticBuilder report(DiagnosticID id) = 0;
+};
+
 class DiagnosticEngine : public IDiagnosticEngine {
-    public:
-        DiagnosticEngine(const SourceManager& sourceManager);
-        ~DiagnosticEngine() override;
+public:
+    DiagnosticEngine(ISourceManager& sourceManager);
+    ~DiagnosticEngine() {};
 
-        bool hasWarnings() const { return m_warningCount > 0; }
-        bool hasErrors() const { return m_errorCount > 0; }
+    bool hasErrors() const { return m_errorCount > 0; }
 
-        const std::vector<Diagnostic>& getDiagnostics() const { return m_diagnostics; }
+    DiagnosticBuilder report(DiagnosticID id) override;
 
-        void report(Diagnostic diagnostic) override;
-        void printDiagnostics();
-        void clearDiagnostics();
+    void addDiagnostic(std::unique_ptr<Diagnostic> diagnostic);
 
-    private:
-        const SourceManager& m_sourceManager;
-        std::vector<Diagnostic> m_diagnostics;
-        size_t m_errorCount;
-        size_t m_warningCount;
+    void printDiagnostics();
 
-        std::string levelToString(DiagnosticLevel level) const;
+private:
+    ISourceManager& m_sourceManager;
+    size_t m_errorCount = 0;
+    size_t m_warningCount = 0;
+    std::vector<std::unique_ptr<Diagnostic>> m_diagnostics;
 };

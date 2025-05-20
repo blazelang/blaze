@@ -1,26 +1,18 @@
 #pragma once
 
-#include <string>
+#include "Diagnostics/DiagnosticID.hpp"
+#include "SourceManager/SourceManager.hpp"
 
-enum class DiagnosticPhrase {
-    Lexer,
-    Parser
-};
-
-enum class DiagnosticLevel {
-    Note,
-    Warning,
-    Error
-};
-
-struct SourcePosition {
-    std::string_view fileName;
-    std::pair<size_t, size_t> position;
+struct Span {
+    SourceManager::FileID fileID;
+    size_t line;
+    size_t column;
 };
 
 struct Diagnostic {
-    DiagnosticPhrase phrase;
-    DiagnosticLevel lvl;
-    SourcePosition position;
+    DiagnosticID id;
+    std::string code;
+    DiagnosticLevel level;
     std::string message;
+    Span span;
 };
