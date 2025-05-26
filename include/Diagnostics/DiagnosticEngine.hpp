@@ -5,15 +5,13 @@
 #include <fmt/format.h>
 
 #include "Diagnostics/Diagnostic.hpp"
-#include "Diagnostics/DiagnosticID.hpp"
-#include "Diagnostics/DiagnosticBuilder.hpp"
 #include "SourceManager/SourceManager.hpp"
 
 class IDiagnosticEngine {
 public:
     virtual ~IDiagnosticEngine() = default;
 
-    virtual DiagnosticBuilder report(DiagnosticID id) = 0;
+    virtual void addDiagnostic(std::unique_ptr<Diagnostic> diagnostic) = 0;
 };
 
 class DiagnosticEngine : public IDiagnosticEngine {
@@ -23,9 +21,7 @@ public:
 
     bool hasErrors() const { return m_errorCount > 0; }
 
-    DiagnosticBuilder report(DiagnosticID id) override;
-
-    void addDiagnostic(std::unique_ptr<Diagnostic> diagnostic);
+    void addDiagnostic(std::unique_ptr<Diagnostic> diagnostic) override;
 
     void printDiagnostics();
 

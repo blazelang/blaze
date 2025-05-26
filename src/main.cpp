@@ -1,5 +1,6 @@
 #include <optional>
 #include <iostream>
+#include <filesystem>
 
 #include "Lexer/Lexer.hpp"
 #include "Lexer/Token.hpp"
@@ -15,6 +16,8 @@ int main(int argc, char** argv) {
     SourceManager sourceManager;
     std::optional<ISourceManager::FileID> sourceFileID = sourceManager.loadFile(argv[1]);
     if (!sourceFileID.has_value()) {
+        std::filesystem::path cwd = std::filesystem::current_path();
+        std::cout << "Current working directory: " << cwd << std::endl;
         std::cerr << "Failed to load file: " << argv[1] << '\n';
         return EXIT_FAILURE;
     }
@@ -27,9 +30,9 @@ int main(int argc, char** argv) {
     std::vector<Token>& tokens = lexer.tokenize();
 
     // Print all tokens generated from lexer
-    // for (const auto& token : tokens) {
-    //     std::cout << std::format("Token: {}", TokenKindToString(token)) << '\n';
-    // }
+    for (const auto& token : tokens) {
+        std::cout << std::format("Token: {}", TokenKindToString(token)) << '\n';
+    }
 
     diagnosticEngine.printDiagnostics();
 

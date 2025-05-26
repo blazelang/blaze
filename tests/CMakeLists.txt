@@ -7,7 +7,7 @@ file(GLOB_RECURSE TEST_SOURCES "*.cpp")
 add_executable(blaze_tests ${TEST_SOURCES})
 
 # Link test executable with googletest and the main project
-target_link_libraries(blaze_tests PRIVATE blaze_core gtest gtest_main gmock)
+target_link_libraries(blaze_tests PRIVATE blaze_core GTest::gtest_main GTest::gmock)
 
 # Include headers and source dirs
 target_include_directories(blaze_tests PRIVATE

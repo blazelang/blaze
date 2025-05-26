@@ -4,15 +4,17 @@
 
 #include "Lexer/LexerBaseTest.cc"
 
-TEST_P(LexerBaseTest, TokenizeSymbols) {
+class LexerSymbolTest : public LexerBaseTest {};
+
+TEST_P(LexerSymbolTest, TokenizeSymbols) {
     const LexerTestCase& testcase = GetParam();
     std::vector<Token>& tokens = m_lexer->tokenize();
     CheckTokens(testcase.expectedTokens, tokens);
 }
 
 INSTANTIATE_TEST_SUITE_P(
+    LexerSymbols,
     LexerSymbolTest,
-    LexerBaseTest,
     testing::Values(
         // Basic symbols
         LexerTestCase{

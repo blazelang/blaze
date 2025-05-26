@@ -2,10 +2,13 @@
 
 #include <optional>
 #include <string>
+#include <format>
 #include <string_view>
 
+#include "Diagnostics/Diagnostic.hpp"
 #include "Diagnostics/DiagnosticID.hpp"
 #include "Diagnostics/DiagnosticBuilder.hpp"
+#include "Lexer/Token.hpp"
 #include "Utils/Utf8.hpp"
 
 Lexer::Lexer(ISourceManager::FileID fileID, ISourceManager& sourceManager, IDiagnosticEngine& diagnosticEngine)
@@ -18,7 +21,7 @@ char32_t Lexer::advance() {
     char32_t cp = 0;
     size_t bytes = utf8::decodeCodepoint(m_source, m_pos, cp);
     m_pos += bytes;
-    m_column += 1;
+    m_endColumn += 1;
     return cp;
 };
 
@@ -30,14 +33,12 @@ char32_t Lexer::peek() const {
 
 char32_t Lexer::lookahead(int i) const {
     char32_t cp = 0;
-    size_t bytes = 0;
     size_t pos = m_pos;
     for (int count = 0; count <= i; ++count) {
         if (pos >= m_source.size()) {
             return U'\0'; // End of source
         }
-        cp = 0;
-        bytes = utf8::decodeCodepoint(m_source, pos, cp);
+        size_t bytes = utf8::decodeCodepoint(m_source, pos, cp);
         pos += bytes;
     }
     return cp;
@@ -55,7 +56,7 @@ std::string_view Lexer::getLexeme() const {
     return m_source.substr(m_start, m_pos - m_start);
 }
 
-void Lexer::addToken(TokenKind kind, std::optional<std::string> lexeme) {
+void Lexer::addToken(TokenKind kind, const std::optional<std::string>& lexeme) {
     m_tokens.push_back({
         .kind = kind,
         .position = std::pair(m_startLine, m_startColumn),
@@ -63,16 +64,25 @@ void Lexer::addToken(TokenKind kind, std::optional<std::string> lexeme) {
     });
 }
 
+std::unique_ptr<Diagnostic> Lexer::buildDiagnostic(DiagnosticID id, std::string message, Span span) {
+    return DiagnosticBuilder(id, message).span(span).build();
+}
+
 bool Lexer::isEnd() const {
     return m_pos >= m_source.length();
 }
 
 bool Lexer::isWhitespace(char32_t codepoint) const {
-    return codepoint == U' ' || codepoint == U'\t' || codepoint == U'\n' || codepoint == U'\r' || codepoint == U'\v' || codepoint == U'\f';
+    return
+        codepoint == U' ' || codepoint == U'\t' || codepoint == U'\n' ||
+        codepoint == U'\r' || codepoint == U'\v' || codepoint == U'\f';
 }
 
 bool Lexer::isHexDigit(char32_t codepoint) const {
-    return (codepoint >= U'0' && codepoint <= U'9') || (codepoint >= U'a' && codepoint <= U'f') || (codepoint >= U'A' && codepoint <= U'F');
+    return
+        (codepoint >= U'0' && codepoint <= U'9') ||
+        (codepoint >= U'a' && codepoint <= U'f') ||
+        (codepoint >= U'A' && codepoint <= U'F');
 }
 
 bool Lexer::isOctalDigit(char32_t codepoint) const {
@@ -100,11 +110,17 @@ bool Lexer::isDecimalDigit(char32_t codepoint) const {
 }
 
 bool Lexer::isNumberStart(char32_t codepoint) const {
-    return isDecimalDigit(codepoint) || (codepoint == U'.' && isDecimalDigit(peek())) || (codepoint == U'_' && isDecimalDigit(peek()));
+    return
+        isDecimalDigit(codepoint) ||
+        (codepoint == U'.' && isDecimalDigit(peek())) ||
+        (codepoint == U'_' && isDecimalDigit(peek()));
 }
 
 bool Lexer::isAlpha(char32_t codepoint) const {
-    return (codepoint >= 'a' && codepoint <= 'z') || (codepoint >= 'A' && codepoint <= 'Z') || codepoint == '_';
+    return
+        (codepoint >= 'a' && codepoint <= 'z') ||
+        (codepoint >= 'A' && codepoint <= 'Z') ||
+        codepoint == '_';
 }
 
 bool Lexer::isAlphaNum(char32_t codepoint) const {
@@ -112,139 +128,17 @@ bool Lexer::isAlphaNum(char32_t codepoint) const {
 }
 
 bool Lexer::isIdentifierStart(char32_t cp) {
-    return u_hasBinaryProperty(cp, UCHAR_XID_START);
+    return u_hasBinaryProperty(cp, UCHAR_XID_START) || cp == U'_';
 };
 
 bool Lexer::isIdentifierContinue(char32_t cp) {
     return u_hasBinaryProperty(cp, UCHAR_XID_CONTINUE);
 };
 
-bool Lexer::matchEscapeSequence(EscapeSequenceErrorKind& errorKind) {
-    switch (peek()) {
-        case '\\':
-        case '\'':
-        case '\"':
-        case 'n' :
-        case 'r' :
-        case 't' :
-        case 'b' :
-        case 'f' :
-        case 'v' :
-        case '0' : {
-            advance();
-            return true;
-        }
-        // Hex escape: \xNN
-        case 'x' : {
-            advance(); // consume 'x`
-
-            std::string hexString;
-            hexString.reserve(2);
-
-            if (peek() == U'\'' || peek() == U'\"') {
-                errorKind = EscapeSequenceErrorKind::NumericEscapeTooShort;
-                return false;
-            }
-
-            if (!isHexDigit(peek())) {
-                errorKind = EscapeSequenceErrorKind::InvalidNumericEscape;
-                return false;
-            }
-
-            hexString += static_cast<char>(advance()); // Consume first hex digit
-
-            if (peek() == U'\'' || peek() == U'\"') {
-                errorKind = EscapeSequenceErrorKind::NumericEscapeTooShort;
-                return false;
-            }
-
-            if (!isHexDigit(peek())) {
-                errorKind = EscapeSequenceErrorKind::InvalidNumericEscape;
-                return false;
-            }
-
-            hexString += static_cast<char>(advance()); // Consume second hex digit
-
-            // Check if hex value is in range of 00 to 7f
-            uint32_t hexValue;
-            try {
-               hexValue = std::stoul(hexString, nullptr, 16);
-            } catch (const std::exception&) {
-                errorKind = EscapeSequenceErrorKind::HexOutOfRange;
-                return false;
-            }
-
-            if (hexValue > 0x7F) { // Check for 00-7F range
-                errorKind = EscapeSequenceErrorKind::HexOutOfRange;
-                return false;
-            }
-
-            return true;
-        }
-        // Unicode escape: \u{NNNNNN}
-        case 'u' : {
-            advance(); // Consume 'u'
-
-            if (!match(U'{')) {
-                errorKind = EscapeSequenceErrorKind::MalformedUnicodeSequence;
-                return false;
-            }
-
-            std::string hexString;
-            hexString.reserve(6);
-            int digitCount = 0;
-
-            while (!isEnd() && peek() != U'\'' && peek() != U'\"' && peek() != U'}') {
-                if (!isHexDigit(peek())) {
-                    errorKind = EscapeSequenceErrorKind::InvalidUnicodeChar;
-                    return false;
-                }
-                hexString += static_cast<char>(advance());
-                digitCount += 1;
-            }
-
-            if (!match(U'}')) {
-                errorKind = EscapeSequenceErrorKind::UnterminatedUnicode;
-                return false;
-            }
-
-            if (digitCount == 0) {
-                errorKind = EscapeSequenceErrorKind::EmptyUnicodeEscape;
-                return false;
-            }
-
-            if (digitCount > 6) {
-                errorKind = EscapeSequenceErrorKind::OverlongUnicodeChar;
-                return false;
-            }
-
-            uint32_t hexValue;
-            try {
-                hexValue = std::stoul(hexString, nullptr, 16);
-            } catch (const std::out_of_range&) {
-                // Max FFFFFF is 16,777,215, fits in unsigned long. Unlikely.
-                errorKind = EscapeSequenceErrorKind::UnicodeOutOfRange;
-                return false;
-            }
-
-            if (hexValue > 0x10FFFF || (hexValue >= 0xD800 && hexValue <= 0xDFFF)) {
-                errorKind = EscapeSequenceErrorKind::UnicodeOutOfRange;
-                return false;
-            }
-
-            return true;
-        }
-        default: {
-            errorKind = EscapeSequenceErrorKind::UnknownEscape;
-            return false;
-        }
-    }
-}
-
 void Lexer::skipWhitespace(char32_t codepoint) {
     if (codepoint == U'\n') {
-        m_line += 1;
-        m_column = 1;
+        m_endLine += 1;
+        m_endColumn = 1;
     }
 }
 
@@ -279,14 +173,12 @@ void Lexer::lexBlockComment() {
     while (!isEnd()) {
         if (peek() == U'/' && lookahead() == U'*') {
             // Nested opening block comment
-            advance();
-            advance();
-            depth += 1;
+            advance(); advance();
+            depth++;
         } else if (peek() == U'*' && lookahead() == U'/') {
             // Closing block comment
-            advance();
-            advance();
-            depth -= 1;
+            advance(); advance();
+            depth--;
         }
 
         // Break if depth is zero, found closing delimiter for block comment
@@ -295,8 +187,8 @@ void Lexer::lexBlockComment() {
         }
 
         if (peek() == U'\n') {
-            m_line += 1;
-            m_column = 1;
+            m_endLine += 1;
+            m_endColumn = 1;
         }
 
         advance();
@@ -304,10 +196,16 @@ void Lexer::lexBlockComment() {
 
     // Handle the case where the comment is unterminated (depth > 0)
     if (depth > 0) {
-        m_diagnosticEngine.report(DiagnosticID::UnterminatedBlockComment)
-            .message("Unterminated {} comment", token.has_value() ? "document" : "block")
-            .span({ m_fileID, m_startLine, m_startColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::BlockCommentUnterminated,
+                    std::format("Unterminated {} comment", token.has_value() ? "document" : "block"),
+                    { m_fileID, m_startLine, m_startColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
@@ -329,10 +227,10 @@ void Lexer::lexKeywordOrIdentifier() {
 
     // If it's a keyword, add the keyword token, otherwise add it as an identifier
     if (keywordIt != g_keywordMap.end()) {
-        addToken(keywordIt->second);
-    } else {
-        addToken(TOK_IDENTIFIER, normalizedUTF8Lexeme);
+        return addToken(keywordIt->second);
     }
+
+    addToken(TOK_IDENTIFIER, normalizedUTF8Lexeme);
 }
 
 void Lexer::lexNumberLiteral(char32_t codepoint) {
@@ -347,13 +245,10 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     bool hasLeadingDot = false;
     bool hasMultipleDot = false;
     bool hasConsecutiveUnderscore = false;
-    bool hasLeadingUnderscore = false;
     bool hasTailingUnderscore = false;
     bool hasUnderscoreBeforeBasePrefix = false;
     bool hasUnderscoreAfterBasePrefix = false;
     bool hasUnderscoreBeforeDot = false;
-
-    std::string invalidSuffix;
 
     size_t invalidLine = m_startLine;
     size_t invalidColumn = m_startColumn;
@@ -361,12 +256,6 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
     // Case when the literal starts with '.' (e.g., ".123") which is invalid
     if (codepoint == U'.') {
         hasLeadingDot = true;
-        advance();
-    }
-
-    // Check for invalid underscore at start after digit (e.g., "_0123" or "_123")
-    if (codepoint == U'_') {
-        hasLeadingUnderscore = true;
         advance();
     }
 
@@ -442,7 +331,7 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
         char32_t next = lookahead();
 
         // Check for consecutive and last underscore
-        if (peek() == U'_') {
+        if (current == U'_') {
             if (next == U'_') {
                 hasConsecutiveUnderscore = true;
             }
@@ -473,6 +362,8 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
 
         // check for atleast one valid decimal digit for exponent is found
         if (!isDecimalDigit(peek())) {
+            invalidLine = m_endLine;
+            invalidColumn = m_endColumn;
             hasEmptyExponent = true; // e.g., "1.0e"
         }
 
@@ -508,10 +399,12 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
         }
     }
 
+    std::string invalidSuffix;
+
     // Catch any remaining invalid suffix
-    if (!hasInValidDigit && isAlphaNum(peek())) {
-        invalidLine = m_line;
-        invalidColumn = m_column;
+    if (isAlphaNum(peek())) {
+        invalidLine = m_endLine;
+        invalidColumn = m_endColumn;
         while (isAlphaNum(peek())) {
             invalidSuffix += advance();
         }
@@ -519,125 +412,409 @@ void Lexer::lexNumberLiteral(char32_t codepoint) {
 
     // Final validations and error reports
 
-    if (invalidSuffix.size() > 0) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralInvalidSuffix)
-            .message("Invalid suffix `{}` on number literal", invalidSuffix)
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+    if (hasInValidDigit) {
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralInvalidDigit,
+                    "Numeric literal contains invalid digit(s)",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasEmptyDigit) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralEmptyDigits)
-            .message("Numeric literal contains no digits")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralEmptyDigits,
+                    "Numeric literal contains no digits",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasLeadingDot) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralLeadingDot)
-            .message("Floating-point literals must include digits before the decimal point")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralLeadingDot,
+                    "Floating-point literals must include digits before the decimal point",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasMultipleDot) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralMultipleDots)
-            .message("Numeric literal contains multiple decimal points")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
-        return addToken(TOK_ERROR);
-    }
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralMultipleDots,
+                    "Numeric literal contains multiple decimal points",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
 
-    if (hasInValidDigit) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralInvalidDigit)
-            .message("Numeric literal contains invalid digit(s)")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasEmptyExponent) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralEmptyExponent)
-            .message("Exponent in numeric literal must contain at least one digit")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralEmptyExponent,
+                    "Exponent in numeric literal must contain at least one digit",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasConsecutiveUnderscore) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralConsecutiveUnderscore)
-            .message("Consecutive underscores are not permitted within numeric literals")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
-        return addToken(TOK_ERROR);
-    }
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralConsecutiveUnderscore,
+                    "Consecutive underscores are not permitted within numeric literals",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
 
-    if (hasLeadingUnderscore) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralLeadingUnderscore)
-            .message("Numeric literals cannot begin with an underscore")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
         return addToken(TOK_ERROR);
     }
 
     if (hasTailingUnderscore) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralTrailingUnderscore)
-            .message("Numeric literals cannot end with an underscore")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralTrailingUnderscore,
+                    "Numeric literals cannot end with an underscore",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasUnderscoreBeforeBasePrefix) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreBeforePrefix)
-            .message("Underscores are not allowed before the base prefix in numeric literals")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralUnderscoreBeforePrefix,
+                    "Underscores are not allowed before the base prefix in numeric literals",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasUnderscoreAfterBasePrefix) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreAfterPrefix)
-            .message("Underscores are not allowed immediately after the base prefix in numeric literals")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralUnderscoreAfterPrefix,
+                    "Underscores are not allowed immediately after the base prefix in numeric literals",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
     if (hasUnderscoreBeforeDot) {
-        m_diagnosticEngine.report(DiagnosticID::NumberLiteralUnderscoreBeforeDot)
-            .message("Underscores are not allowed immediately before the decimal point in numeric literals")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralUnderscoreBeforeDot,
+                    "Underscores are not allowed immediately before the decimal point in numeric literals",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
-    // If all is well, return appropriate token
+    if (invalidSuffix.size() > 0) {
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::NumberLiteralInvalidSuffix,
+                    std::format("Invalid suffix `{}` on number literal", invalidSuffix),
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
+        return addToken(TOK_ERROR);
+    }
+
     return addToken(isFloat ? TOK_FLOAT_LITERAL : TOK_INTEGER_LITERAL);
+}
+
+bool Lexer::lexEscapeSequence(bool isChar) {
+    size_t startLine = m_endLine;
+    size_t startColumn = m_endColumn;
+
+    advance(); // consume `\`
+
+    switch (peek()) {
+        case '\\': case '\'': case '\"':
+        case 'n' : case 'r' : case 't' :
+        case 'b' : case 'f' : case 'v' :
+        case '0' : {
+            advance();
+            return true;
+        }
+
+        // Hex escape: \xNN
+        case 'x' : {
+            advance(); // consume 'x`
+
+            std::string hexDigits;
+            hexDigits.reserve(2);
+
+            for (int i = 0; i < 2; ++i) {
+                if (peek() == U'\'' || peek() == U'\"') {
+                    m_diagnosticEngine.addDiagnostic(
+                        std::move(
+                            buildDiagnostic(
+                                isChar ? DiagnosticID::CharEscapeHexTooShort : DiagnosticID::StringEscapeHexTooShort,
+                                "numeric character escape is too short",
+                                { m_fileID, startLine, startColumn }
+                            )
+                        )
+                    );
+
+                    return false;
+                }
+
+                if (!isHexDigit(peek())) {
+                    m_diagnosticEngine.addDiagnostic(
+                        std::move(
+                            buildDiagnostic(
+                                isChar ? DiagnosticID::CharEscapeInvalidHexDigit : DiagnosticID::StringEscapeInvalidHexDigit,
+                                std::format("invalid character in numeric character escape: `{}`", m_source[m_pos]),
+                                { m_fileID, m_endLine, m_endColumn }
+                            )
+                        )
+                    );
+
+                    return false;
+                }
+
+                hexDigits += static_cast<char>(advance());
+            }
+
+            try {
+               // Check if hex value is in range of 00 to 7f
+               uint32_t value = std::stoul(hexDigits, nullptr, 16);
+
+               // Check for 00-7F range
+                if (value > 0x7F) {
+                    m_diagnosticEngine.addDiagnostic(
+                        std::move(
+                            buildDiagnostic(
+                                isChar ?
+                                    DiagnosticID::CharEscapeHexOutOfRange :
+                                    DiagnosticID::StringEscapeHexOutOfRange,
+                                "out of range hex escape",
+                                { m_fileID, startLine, startColumn }
+                            )
+                        )
+                    );
+
+                    return false;
+                }
+            } catch (const std::exception&) {
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeHexOutOfRange : DiagnosticID::StringEscapeHexOutOfRange,
+                            "out of range hex escape",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            return true;
+        }
+
+        // Unicode escape: \u{NNNNNN}
+        case 'u' : {
+            advance(); // Consume 'u'
+
+            if (!match(U'{')) {
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeMissingUnicodeBrace : DiagnosticID::StringEscapeMissingUnicodeBrace,
+                            "incorrect unicode escape sequence",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            std::string hexDigits;
+            hexDigits.reserve(6);
+
+            while (!isEnd() && peek() != U'\'' && peek() != U'\"' && peek() != U'}') {
+                if (!isHexDigit(peek())) {
+                    m_diagnosticEngine.addDiagnostic(
+                        std::move(
+                            buildDiagnostic(
+                                isChar ? DiagnosticID::CharEscapeInvalidUnicodeDigit : DiagnosticID::StringEscapeInvalidUnicodeDigit,
+                                std::format("invalid character in unicode escape: `{}`", m_source[m_pos]),
+                                { m_fileID, m_endLine, m_endColumn }
+                            )
+                        )
+                    );
+
+                    return false;
+                }
+
+                hexDigits += static_cast<char>(advance());
+            }
+
+            if (!match(U'}')) {
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeUnterminatedUnicode : DiagnosticID::StringEscapeUnterminatedUnicode,
+                            "unterminated unicode escape",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            if (hexDigits.empty()) {
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeEmptyUnicode : DiagnosticID::StringEscapeEmptyUnicode,
+                            "empty unicode escape",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            if (hexDigits.size() > 6) {
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeOverlongUnicode : DiagnosticID::StringEscapeOverlongUnicode,
+                            "overlong unicode escape",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            try {
+               uint32_t value = std::stoul(hexDigits, nullptr, 16);
+
+               if (value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {
+                    m_diagnosticEngine.addDiagnostic(
+                        std::move(
+                            buildDiagnostic(
+                                isChar ? DiagnosticID::CharEscapeInvalidUnicodeRange : DiagnosticID::StringEscapeInvalidUnicodeRange,
+                                "invalid unicode character escape",
+                                { m_fileID, startLine, startColumn }
+                            )
+                        )
+                    );
+
+                   return false;
+               }
+            } catch (const std::out_of_range&) {
+                // Max FFFFFF is 16,777,215, fits in unsigned long. Unlikely.
+                m_diagnosticEngine.addDiagnostic(
+                    std::move(
+                        buildDiagnostic(
+                            isChar ? DiagnosticID::CharEscapeInvalidUnicodeRange : DiagnosticID::StringEscapeInvalidUnicodeRange,
+                            "invalid unicode character escape",
+                            { m_fileID, startLine, startColumn }
+                        )
+                    )
+                );
+
+                return false;
+            }
+
+            return true;
+        }
+
+        default: {
+            m_diagnosticEngine.addDiagnostic(
+                std::move(
+                    buildDiagnostic(
+                        isChar ? DiagnosticID::CharEscapeUnknown : DiagnosticID::StringEscapeUnknown,
+                        std::format("unknown character escape: `{}`", m_source[m_pos]),
+                        { m_fileID, m_endLine, m_endColumn }
+                    )
+                )
+            );
+
+            return false;
+        }
+    }
 }
 
 void Lexer::lexCharLiteral() {
     bool hasMultiCodepoint = false;
     bool hasUnterminatedQuote = false;
-    bool hasEscapeSequenceError = false;
-    EscapeSequenceErrorKind escapeSequenceErrorKind;
+    bool hasInvalidEscapeSequence = false;
 
     size_t invalidLine = m_startLine;
     size_t invalidColumn = m_startColumn;
 
     if (match('\'')) {
-        m_diagnosticEngine.report(DiagnosticID::EmptyChar)
-            .message("Character literal cannot be empty")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::CharEmpty,
+                    "Character literal cannot be empty",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
-    if (match(U'\\')) {
-        hasEscapeSequenceError = !matchEscapeSequence(escapeSequenceErrorKind);
+    if (peek() == U'\\') {
+      hasInvalidEscapeSequence = !lexEscapeSequence();
     } else {
         advance(); // consume the first codepoint for both char & string literal
     }
@@ -648,6 +825,8 @@ void Lexer::lexCharLiteral() {
             advance();
         }
         if (match(U'\'')) {
+            invalidLine = m_endLine;
+            invalidColumn = m_endColumn;
             hasMultiCodepoint = true;
         } else {
             hasUnterminatedQuote = true;
@@ -657,73 +836,98 @@ void Lexer::lexCharLiteral() {
     }
 
     if (hasUnterminatedQuote) {
-        m_diagnosticEngine.report(DiagnosticID::UnterminatedChar)
-            .message("Unterminated character literal")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::CharUnterminated,
+                    "Unterminated character literal",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
-    if (hasEscapeSequenceError) {
-        // TODO: properly handle escape error kind for char literal
+    if (hasInvalidEscapeSequence) {
         return addToken(TOK_ERROR);
     }
 
     if (hasMultiCodepoint) {
-        m_diagnosticEngine.report(DiagnosticID::MultiChar)
-            .message("Character literal must contain only one character")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::CharMultiCodepoint,
+                    "Character literal must contain only one character",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
-    return addToken(TOK_CHAR);
+    return addToken(TOK_CHAR_LITERAL);
 }
 
 void Lexer::lexStringLiteral() {
-    bool hasUnterminatedQuote = false;
-    bool hasEscapeSequenceError = false;
+    bool hasInvalidEscapeString = false;
 
     size_t invalidLine = m_startLine;
     size_t invalidColumn = m_startColumn;
 
-    while(!isEnd() && peek() != U'\n' && peek() != '\"') {
-        if (match('\\')) {
-            EscapeSequenceErrorKind escapeSequenceErrorKind;
-            hasEscapeSequenceError = matchEscapeSequence(escapeSequenceErrorKind);
-            // TODO: properly handle escape error kind for string literal
+    while(!isEnd() && peek() != '\"') {
+        if (peek() == U'\n') {
+            m_endLine += 1;
+            m_endColumn = 1;
+        }
+
+        if (peek() == U'\\') {
+            bool isValidEscapeSequence = lexEscapeSequence(false);
+            if (!hasInvalidEscapeString && !isValidEscapeSequence) {
+                hasInvalidEscapeString = true;
+            }
         } else {
             advance();
         }
     }
 
     if (!match(U'\"')) {
-        hasUnterminatedQuote = true;
-    }
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::StringUnterminated,
+                    "Unterminated string literal",
+                    { m_fileID, invalidLine, invalidColumn }
+                )
+            )
+        );
 
-    if (hasUnterminatedQuote) {
-        m_diagnosticEngine.report(DiagnosticID::UnterminatedString)
-            .message("Unterminated string literal")
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
         return addToken(TOK_ERROR);
     }
 
-    return addToken(TOK_STRING);
+    if (hasInvalidEscapeString) {
+        return addToken(TOK_ERROR);
+    }
+
+    return addToken(TOK_STRING_LITERAL);
 }
 
 void Lexer::lexSymbol(char32_t cp) {
     std::string symbol = utf8::encodeCodepoint(cp);
 
-    size_t invalidLine = m_startLine;
-    size_t invalidColumn = m_startColumn;
-
     auto symbolIt = g_symbolMap.find(symbol);
     if (symbolIt == g_symbolMap.end()) {
-        m_diagnosticEngine.report(DiagnosticID::UnrecognizedSymbol)
-            .message("Unrecogized symbol `{}`", symbol)
-            .span({ m_fileID, invalidLine, invalidColumn })
-            .build();
+        m_diagnosticEngine.addDiagnostic(
+            std::move(
+                buildDiagnostic(
+                    DiagnosticID::UnrecognizedSymbol,
+                    std::format("Unrecogized symbol `{}`", symbol),
+                    { m_fileID, m_startLine, m_startColumn }
+                )
+            )
+        );
+
         return addToken(TOK_ERROR);
     }
 
@@ -731,6 +935,7 @@ void Lexer::lexSymbol(char32_t cp) {
     while (!isEnd()) {
         // Check if the extended symbol exist
         std::string nextSymbol = utf8::encodeCodepoint(peek());
+
         auto extendedSymbolIt = g_symbolMap.find(symbol + nextSymbol);
         if (extendedSymbolIt != g_symbolMap.end()) {
             symbol += advance();
@@ -740,15 +945,15 @@ void Lexer::lexSymbol(char32_t cp) {
         }
     }
 
-    // Add the token corresponding to the final symbol
     return addToken(symbolIt->second);
 }
 
 std::vector<Token>& Lexer::tokenize() {
     while (!isEnd()) {
         m_start = m_pos;
-        m_startLine = m_line;
-        m_startColumn = m_column;
+        m_startLine = m_endLine;
+        m_startColumn = m_endColumn;
+
         const char32_t cp = advance();
         if (isWhitespace(cp)) {
             skipWhitespace(cp);
@@ -770,10 +975,15 @@ std::vector<Token>& Lexer::tokenize() {
     }
 
     m_start = m_pos;
+    m_startLine = m_endLine;
+    m_startColumn = m_endColumn;
+
     addToken(TOK_EOF);
 
     // Reset values
-    m_start = 0; m_pos = 0; m_line = 1; m_column = 1; m_startLine = 1; m_startColumn = 1;
+    m_start = 0; m_pos = 0;
+    m_startLine = 1; m_startColumn = 1;
+    m_endLine = 1; m_endColumn = 1;
 
     return m_tokens;
 }

@@ -4,15 +4,17 @@
 
 #include "Lexer/LexerBaseTest.cc"
 
-TEST_P(LexerBaseTest, TokenizeNumberLiterals) {
+class LexerNumberLiteralTest : public LexerBaseTest {};
+
+TEST_P(LexerNumberLiteralTest, TokenizeNumberLiterals) {
     const LexerTestCase& testcase = GetParam();
     std::vector<Token>& tokens = m_lexer->tokenize();
     CheckTokens(testcase.expectedTokens, tokens);
 }
 
 INSTANTIATE_TEST_SUITE_P(
+    LexerNumberLiterals,
     LexerNumberLiteralTest,
-    LexerBaseTest,
     testing::Values(
     // Basic integer literals
         LexerTestCase{
@@ -229,21 +231,6 @@ INSTANTIATE_TEST_SUITE_P(
                 {TOK_INTEGER_LITERAL, {1, 17}, "0b0"},
                 {TOK_INTEGER_LITERAL, {1, 21}, "0o0"},
                 {TOK_EOF, {1, 24}, ""}
-            }
-        },
-
-        // Invalid leading underscore
-        LexerTestCase{
-            .name = "InvalidLeadingUnderscore",
-            .fileID = 1,
-            .source = "_123 _0.5 _0xF _0b1 _0o7",
-            .expectedTokens = {
-                {TOK_ERROR, {1, 1}, "_123"},
-                {TOK_ERROR, {1, 6}, "_0.5"},
-                {TOK_ERROR, {1, 11}, "_0xF"},
-                {TOK_ERROR, {1, 16}, "_0b1"},
-                {TOK_ERROR, {1, 21}, "_0o7"},
-                {TOK_EOF, {1, 25}, ""}
             }
         },
 

@@ -5,10 +5,10 @@
 std::unordered_map<std::string, TokenKind> g_keywordMap = {
     {"let", TOK_LET},
     {"const", TOK_CONST},
-    {"fn", TOK_FUNCTION},
+    {"fn", TOK_FN},
     {"return", TOK_RETURN},
     {"if", TOK_IF},
-    {"else if", TOK_ELSE_IF},
+    {"elif", TOK_ELIF},
     {"else", TOK_ELSE},
     {"while", TOK_WHILE},
     {"break", TOK_BREAK},
@@ -91,10 +91,10 @@ std::string TokenKindToString(Token token) {
     switch (token.kind) {
         case TOK_LET: return std::format("TOK_LET(\"{}\")", token.lexeme);
         case TOK_CONST: return std::format("TOK_CONST(\"{}\")", token.lexeme);
-        case TOK_FUNCTION: return std::format("TOK_FUNCTION(\"{}\")", token.lexeme);
+        case TOK_FN: return std::format("TOK_FN(\"{}\")", token.lexeme);
         case TOK_RETURN: return std::format("TOK_RETURN(\"{}\")", token.lexeme);
         case TOK_IF: return std::format("TOK_IF(\"{}\")", token.lexeme);
-        case TOK_ELSE_IF: return std::format("TOK_ELSE_IF(\"{}\")", token.lexeme);
+        case TOK_ELIF: return std::format("TOK_ELSE_IF(\"{}\")", token.lexeme);
         case TOK_ELSE: return std::format("TOK_ELSE(\"{}\")", token.lexeme);
         case TOK_WHILE: return std::format("TOK_WHILE(\"{}\")", token.lexeme);
         case TOK_BREAK: return std::format("TOK_BREAK(\"{}\")", token.lexeme);

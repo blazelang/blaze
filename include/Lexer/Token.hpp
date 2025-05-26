@@ -7,10 +7,10 @@ enum TokenKind {
     // Keywords
     TOK_LET,                    // "let"
     TOK_CONST,                  // "const"
-    TOK_FUNCTION,               // "function"
+    TOK_FN,                     // "fn"
     TOK_RETURN,                 // "return"
     TOK_IF,                     // "if"
-    TOK_ELSE_IF,                // "else if"
+    TOK_ELIF,                   // "elif"
     TOK_ELSE,                   // "else"
     TOK_WHILE,                  // "while"
     TOK_BREAK,                  // "break"

@@ -3,17 +3,15 @@
 #include <memory>
 
 #include "Diagnostics/Diagnostic.hpp"
-#include "Diagnostics/DiagnosticEngine.hpp"
 #include "Diagnostics/DiagnosticID.hpp"
 
-DiagnosticBuilder::DiagnosticBuilder(DiagnosticEngine& engine, DiagnosticID id)
-:   m_engine(engine),
-    m_diagnostic(std::make_unique<Diagnostic>())
-{
+DiagnosticBuilder::DiagnosticBuilder(DiagnosticID id, std::string message)
+: m_diagnostic(std::make_unique<Diagnostic>()) {
     DiagnosticInfo info = getDiagnosticInfo(id);
     m_diagnostic->id = id;
     m_diagnostic->code = info.code;
     m_diagnostic->level= info.level;
+    m_diagnostic->message = message;
 }
 
 DiagnosticBuilder& DiagnosticBuilder::span(Span span) {
@@ -21,6 +19,6 @@ DiagnosticBuilder& DiagnosticBuilder::span(Span span) {
     return *this;
 }
 
-void DiagnosticBuilder::build() {
-    m_engine.addDiagnostic(std::move(m_diagnostic));
+std::unique_ptr<Diagnostic> DiagnosticBuilder::build() {
+    return std::move(m_diagnostic);
 }
